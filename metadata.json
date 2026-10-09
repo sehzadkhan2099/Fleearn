@@ -1,0 +1,6 @@
+{
+  "name": "KINETIX 3D — Spatial Architecture & Generative Geometry Studio",
+  "description": "Interactive real-time 3D spatial web experience with procedural geometries, orbital core physics, physical material laboratory, and architectural viewports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
