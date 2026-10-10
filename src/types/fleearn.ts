@@ -38,10 +38,9 @@ export interface AppVersion {
   minAndroid: string;
   description: string;
   whatsNew: string[];
-  screenshots: string[];
-  apkFileName: string;
-  apkDownloadUrl?: string;
-  localFileBlob?: string; // base64 or object URL fallback
+  screenshots?: string[];
+  apkFileName?: string;
+  apkDownloadUrl: string; // Direct APK download link updated by Admin
   status: 'published' | 'beta';
 }
 
@@ -121,11 +120,4 @@ export interface SupportTicket {
   message: string;
   date: string;
   status: 'pending' | 'resolved';
-}
-
-export interface SupabaseConfigState {
-  url: string;
-  anonKey: string;
-  bucketName: string;
-  isEnabled: boolean;
 }

@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { FleearnLogo } from '../components/FleearnLogo';
 import {
   ShieldCheck,
   LogOut,
@@ -16,27 +17,25 @@ import {
   RotateCcw,
   MessageSquare,
   Eye,
-  Upload,
-  Database,
-  Cloud,
+  Link as LinkIcon,
+  ExternalLink,
+  Flame,
   CheckCircle2,
   AlertCircle,
   HelpCircle,
-  FileUp,
-  Image as ImageIcon,
+  RefreshCw,
+  Edit3,
 } from 'lucide-react';
 import { AppVersion, Notice, Course, PricingPlan } from '../types/fleearn';
-import { testSupabaseConnection, uploadApkToSupabase, uploadImageToSupabase } from '../lib/supabase';
 
 type AdminTab =
   | 'stats'
   | 'apps'
+  | 'company'
   | 'notices'
   | 'pricing'
   | 'courses'
   | 'docs'
-  | 'company'
-  | 'supabase'
   | 'inquiries';
 
 export const AdminDashboard: React.FC = () => {
@@ -65,11 +64,7 @@ export const AdminDashboard: React.FC = () => {
     supportTickets,
     updateTicketStatus,
     resetToDefaultData,
-    supabaseConfig,
-    updateSupabaseConfig,
-    syncAllToSupabase,
-    isCloudSyncing,
-    cloudSyncStatus,
+    firestoreStatus,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<AdminTab>('stats');
@@ -88,108 +83,85 @@ export const AdminDashboard: React.FC = () => {
     totalTransactionsUSD: platformStats.totalTransactionsUSD,
   });
 
-  const handleStatsSave = (e: React.FormEvent) => {
+  const handleStatsSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    updatePlatformStats({
+    await updatePlatformStats({
       totalUsers: Number(statsForm.totalUsers),
       activeUsers: Number(statsForm.activeUsers),
       bannedAccounts: Number(statsForm.bannedAccounts),
       totalTransactionsUSD: Number(statsForm.totalTransactionsUSD),
       totalTransactionsFSD: Number(statsForm.totalTransactionsUSD),
     });
-    triggerToast('পরিসংখ্যান সফলভাবে আপডেট করা হয়েছে!');
-    if (supabaseConfig.isEnabled) {
-      syncAllToSupabase();
-    }
+    triggerToast('পরিসংখ্যান Firestore-এ সফলভাবে আপডেট করা হয়েছে!');
   };
 
-  // 2. Add APK Form State with REAL File Picker
+  // 2. Direct APK Download Link Management (NO upload needed, purely download link)
   const [showAddAppModal, setShowAddAppModal] = useState(false);
-  const apkFileInputRef = useRef<HTMLInputElement | null>(null);
-  const [selectedApkFile, setSelectedApkFile] = useState<File | null>(null);
-  const [isUploadingApk, setIsUploadingApk] = useState(false);
-  const [uploadProgressText, setUploadProgressText] = useState<string | null>(null);
+  const [editingAppId, setEditingAppId] = useState<string | null>(null);
 
-  const [newApp, setNewApp] = useState({
-    versionName: 'v3.5.0',
+  const [appForm, setAppForm] = useState({
+    versionName: 'v3.5.0 (Latest)',
     versionCode: 350,
     releaseDate: new Date().toISOString().split('T')[0],
     size: '29.2 MB',
     isLatest: true,
     downloadCount: 1500000,
     minAndroid: 'Android 8.0 and above',
-    description: 'নতুন হাই-স্পিড ৩ডি আর্নিং ইঞ্জিন ও অটোমেটেড উইথড্রয়াল সংবলিত সংস্করণ।',
-    whatsNewText: 'নতুন পেমেন্ট মেথড যোগ করা হয়েছে\n৩ডি পারফরম্যান্স অপ্টিমাইজেশন\nসিকিউরিটি প্যাচ হালনাগাদ',
+    description: 'নতুন হাই-স্পিড আর্নিং ইঞ্জিন, অটোমেটেড বিকাশ/নগদ ক্যাশআউট এবং উন্নত সিকিউরিটি সংবলিত সংস্করণ।',
+    whatsNewText: 'নতুন দ্রুততম উইথড্রয়াল গেটওয়ে যুক্ত হয়েছে\n৩ডি পারফরম্যান্স অপ্টিমাইজেশন ও বাগ ফিক্স\nসিকিউরিটি প্যাচ হালনাগাদ',
     apkFileName: 'fleearn-v3.5.0-official.apk',
-    apkDownloadUrl: '',
-    localFileBlob: '',
+    apkDownloadUrl: 'https://github.com/fleearn-ecosystem/app/releases/download/v3.5.0/fleearn-v3.5.0-official.apk',
     status: 'published' as const,
   });
 
-  const handleApkFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setSelectedApkFile(file);
-    const sizeInMB = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
-    const localUrl = URL.createObjectURL(file);
-
-    setNewApp((prev) => ({
-      ...prev,
-      apkFileName: file.name,
-      size: sizeInMB,
-      localFileBlob: localUrl,
-    }));
-  };
-
-  const handleAddApp = async (e: React.FormEvent) => {
+  const handleSaveAppVersion = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsUploadingApk(true);
-
-    let finalDownloadUrl = newApp.apkDownloadUrl;
-
-    // If a real file was selected and Supabase is enabled, upload it to Supabase Storage!
-    if (selectedApkFile && supabaseConfig.isEnabled && supabaseConfig.url && supabaseConfig.anonKey) {
-      setUploadProgressText('Supabase ক্লাউড স্টোরেজে APK আপলোড করা হচ্ছে...');
-      const uploadRes = await uploadApkToSupabase(selectedApkFile, supabaseConfig);
-      if (uploadRes.success) {
-        finalDownloadUrl = uploadRes.url;
-      } else {
-        alert(`Supabase আপলোডে সমস্যা: ${uploadRes.error} (লোকাল মোডে সংরক্ষিত হচ্ছে)`);
-      }
+    if (!appForm.apkDownloadUrl.trim()) {
+      alert('অনুগ্রহ করে সরাসরি APK ডাউনলোড লিংক প্রদান করুন!');
+      return;
     }
 
-    addAppVersion({
-      versionName: newApp.versionName,
-      versionCode: Number(newApp.versionCode),
-      releaseDate: newApp.releaseDate,
-      size: newApp.size,
-      isLatest: newApp.isLatest,
-      downloadCount: Number(newApp.downloadCount),
-      minAndroid: newApp.minAndroid,
-      description: newApp.description,
-      whatsNew: newApp.whatsNewText.split('\n').filter(Boolean),
-      screenshots: [
-        'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=600&q=80',
-        'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=600&q=80',
-        'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=600&q=80',
-        'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=600&q=80',
-      ],
-      apkFileName: newApp.apkFileName,
-      apkDownloadUrl: finalDownloadUrl || newApp.localFileBlob,
-      localFileBlob: newApp.localFileBlob,
-      status: newApp.status,
-    });
+    if (editingAppId) {
+      await updateAppVersion(editingAppId, {
+        versionName: appForm.versionName,
+        versionCode: Number(appForm.versionCode),
+        releaseDate: appForm.releaseDate,
+        size: appForm.size,
+        isLatest: appForm.isLatest,
+        minAndroid: appForm.minAndroid,
+        description: appForm.description,
+        whatsNew: appForm.whatsNewText.split('\n').filter(Boolean),
+        apkFileName: appForm.apkFileName,
+        apkDownloadUrl: appForm.apkDownloadUrl.trim(),
+        status: appForm.status,
+      });
+      triggerToast('APK ডাউনলোড লিংক ও ভার্সন সফলভাবে আপডেট হয়েছে!');
+      setEditingAppId(null);
+    } else {
+      await addAppVersion({
+        versionName: appForm.versionName,
+        versionCode: Number(appForm.versionCode),
+        releaseDate: appForm.releaseDate,
+        size: appForm.size,
+        isLatest: appForm.isLatest,
+        downloadCount: Number(appForm.downloadCount),
+        minAndroid: appForm.minAndroid,
+        description: appForm.description,
+        whatsNew: appForm.whatsNewText.split('\n').filter(Boolean),
+        screenshots: [
+          'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=600&q=80',
+          'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=600&q=80',
+          'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=600&q=80',
+          'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=600&q=80',
+        ],
+        apkFileName: appForm.apkFileName,
+        apkDownloadUrl: appForm.apkDownloadUrl.trim(),
+        status: appForm.status,
+      });
+      triggerToast('নতুন APK সংস্করণ ও ডাউনলোড লিংক যুক্ত হয়েছে!');
+    }
 
-    setIsUploadingApk(false);
-    setUploadProgressText(null);
-    setSelectedApkFile(null);
     setShowAddAppModal(false);
-    triggerToast('নতুন APK সফলভাবে যুক্ত করা হয়েছে!');
-
-    if (supabaseConfig.isEnabled) {
-      syncAllToSupabase();
-    }
   };
 
   // 3. Add Notice Form State
@@ -205,10 +177,10 @@ export const AdminDashboard: React.FC = () => {
     priority: 'normal' as Notice['priority'],
   });
 
-  const handleAddNotice = (e: React.FormEvent) => {
+  const handleAddNotice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNotice.title || !newNotice.content) return;
-    addNotice({
+    await addNotice({
       ...newNotice,
       titleEn: newNotice.titleEn || newNotice.title,
       contentEn: newNotice.contentEn || newNotice.content,
@@ -224,48 +196,16 @@ export const AdminDashboard: React.FC = () => {
       status: 'active',
       priority: 'normal',
     });
-    triggerToast('নতুন নোটিশ সফলভাবে প্রকাশ করা হয়েছে!');
-
-    if (supabaseConfig.isEnabled) {
-      syncAllToSupabase();
-    }
+    triggerToast('নতুন নোটিশ Firestore-এ প্রকাশ করা হয়েছে!');
   };
 
-  // 4. Company Info Form State with Logo Upload
+  // 4. Company Info Form State with Logo Editor
   const [companyForm, setCompanyForm] = useState({ ...companyInfo });
-  const logoInputRef = useRef<HTMLInputElement | null>(null);
-
-  const handleLogoFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (supabaseConfig.isEnabled && supabaseConfig.url && supabaseConfig.anonKey) {
-      triggerToast('Supabase স্টোরেজে লোগো আপলোড করা হচ্ছে...');
-      const uploadRes = await uploadImageToSupabase(file, supabaseConfig);
-      if (uploadRes.success) {
-        setCompanyForm((prev) => ({ ...prev, logoUrl: uploadRes.url }));
-        triggerToast('লোগো ক্লাউডে সফলভাবে আপলোড হয়েছে!');
-        return;
-      }
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      if (result) {
-        setCompanyForm((prev) => ({ ...prev, logoUrl: result }));
-      }
-    };
-    reader.readAsDataURL(file);
-  };
 
   const handleCompanySave = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateCompanyInfo(companyForm);
-    triggerToast('কোম্পানির যাবতীয় তথ্য ও লোগো আপডেট করা হয়েছে!');
-    if (supabaseConfig.isEnabled) {
-      syncAllToSupabase();
-    }
+    await updateCompanyInfo(companyForm);
+    triggerToast('কোম্পানির যাবতীয় তথ্য ও লোগো Firestore-এ সফলভাবে আপডেট করা হয়েছে!');
   };
 
   // 5. Pricing Plan State
@@ -299,43 +239,14 @@ export const AdminDashboard: React.FC = () => {
     triggerToast('নতুন মেম্বারশিপ প্ল্যান যুক্ত হয়েছে!');
   };
 
-  // 6. Supabase Connection State
-  const [supabaseForm, setSupabaseForm] = useState({
-    url: supabaseConfig.url,
-    anonKey: supabaseConfig.anonKey,
-    bucketName: supabaseConfig.bucketName || 'fleearn-storage',
-    isEnabled: supabaseConfig.isEnabled,
-  });
-  const [isTestingSupabase, setIsTestingSupabase] = useState(false);
-  const [supabaseTestResult, setSupabaseTestResult] = useState<{
-    success: boolean;
-    message: string;
-  } | null>(null);
-
-  const handleSaveSupabaseConfig = (e: React.FormEvent) => {
-    e.preventDefault();
-    updateSupabaseConfig(supabaseForm);
-    triggerToast('Supabase কনফিগারেশন সংরক্ষণ করা হয়েছে!');
-  };
-
-  const handleTestSupabase = async () => {
-    setIsTestingSupabase(true);
-    setSupabaseTestResult(null);
-    const res = await testSupabaseConnection(supabaseForm);
-    setIsTestingSupabase(false);
-    setSupabaseTestResult(res);
-  };
-
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Top Banner */}
       <div className="p-6 bg-gradient-to-r from-neutral-900 via-neutral-950 to-neutral-900 border border-[#044541] rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-2xl">
         <div className="flex items-center gap-3.5">
-          <div className="p-3 bg-[#044541] text-emerald-300 rounded-2xl shadow-lg shadow-emerald-950 border border-emerald-500/20">
-            <ShieldCheck className="w-7 h-7 text-red-400" />
-          </div>
+          <FleearnLogo size="md" />
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl sm:text-2xl font-black text-white font-['Outfit']">
                 Fleearn মাস্টার কন্ট্রোল ও এডমিন প্যানেল
               </h1>
@@ -344,24 +255,17 @@ export const AdminDashboard: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-neutral-400 mt-0.5">
-              ওয়েবসাইটের তথ্য, সরাসরি ফোন থেকে APK আপলোড, Supabase স্টোরেজ সিঙ্ক ও কন্টেন্ট ম্যানেজমেন্ট
+              ওয়েবসাইটের তথ্য, সরাসরি APK ডাউনলোড লিংক আপডেট ও Firebase Firestore লাইভ ডাটাবেজ
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          <button
-            onClick={async () => {
-              const res = await syncAllToSupabase();
-              triggerToast(res.message);
-            }}
-            disabled={isCloudSyncing}
-            className="px-3.5 py-2 bg-[#044541] hover:bg-[#065b56] border border-emerald-500/40 text-emerald-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
-            title="সব ডেটা ক্লাউডে সিঙ্ক করুন"
-          >
-            <Cloud className={`w-3.5 h-3.5 ${isCloudSyncing ? 'animate-bounce text-amber-400' : 'text-emerald-300'}`} />
-            <span>{isCloudSyncing ? 'সিঙ্ক হচ্ছে...' : 'Supabase সিঙ্ক'}</span>
-          </button>
+          {/* Live Firestore indicator */}
+          <div className="px-3 py-1.5 bg-[#044541]/40 border border-emerald-500/30 rounded-xl text-[11px] font-mono text-emerald-300 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span>{firestoreStatus}</span>
+          </div>
 
           <button
             onClick={() => {
@@ -397,9 +301,8 @@ export const AdminDashboard: React.FC = () => {
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         {[
           { id: 'stats', label: 'পরিসংখ্যান', icon: Activity },
-          { id: 'apps', label: 'মোবাইল APK আপলোড', icon: Smartphone },
+          { id: 'apps', label: 'মোবাইল APK ডাউনলোড লিংক', icon: Smartphone },
           { id: 'company', label: 'কোম্পানি তথ্য ও লোগো', icon: Building },
-          { id: 'supabase', label: 'Supabase স্টোরেজ', icon: Database },
           { id: 'notices', label: 'নোটিশ বোর্ড', icon: Bell },
           { id: 'pricing', label: 'প্রাইজিং প্ল্যানস (FSD)', icon: DollarSign },
           { id: 'courses', label: 'স্কিল কোর্সসমূহ', icon: BookOpen },
@@ -429,10 +332,10 @@ export const AdminDashboard: React.FC = () => {
         <div className="p-6 md:p-8 bg-neutral-900/50 rounded-3xl border border-white/10 space-y-6">
           <div className="border-b border-white/10 pb-4">
             <h2 className="text-lg font-bold text-white font-['Outfit']">
-              প্ল্যাটফর্মের ৪টি মূল পরিসংখ্যান এডিট করুন
+              প্ল্যাটফর্মের মূল পরিসংখ্যান এডিট করুন (Firestore Sync)
             </h2>
             <p className="text-xs text-neutral-400">
-              এই সংখ্যাগুলো হোমপেজ ও ফুটারের লাইভ কাউন্টারে প্রদর্শিত হয়।
+              এই সংখ্যাগুলো হোমপেজ ও ফুটারের লাইভ কাউন্টারে প্রদর্শিত হয় এবং ফায়ারবেসে রিয়েল-টাইম সেভ থাকে।
             </p>
           </div>
 
@@ -490,56 +393,49 @@ export const AdminDashboard: React.FC = () => {
                 type="submit"
                 className="px-6 py-3 bg-[#044541] hover:bg-[#065b56] text-white font-bold text-xs rounded-xl shadow-lg cursor-pointer"
               >
-                পরিসংখ্যান সংরক্ষণ করুন
+                পরিসংখ্যান Firestore-এ সংরক্ষণ করুন
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* TAB 2: Mobile APK Versions & Real Upload Manager */}
+      {/* TAB 2: Mobile APK Versions & Direct Download Link Manager */}
       {activeTab === 'apps' && (
         <div className="p-6 md:p-8 bg-neutral-900/50 rounded-3xl border border-white/10 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
             <div>
               <h2 className="text-lg font-bold text-white font-['Outfit']">
-                মোবাইল অ্যাপ ও APK ফাইল আপলোড
+                মোবাইল অ্যাপ APK সরাসরি ডাউনলোড লিংক কন্ট্রোল
               </h2>
               <p className="text-xs text-neutral-400">
-                এডমিন তার ফোন বা কম্পিউটার থেকে সরাসরি .apk ফাইল আপলোড করতে পারবেন।
+                অ্যাপের apk ফাইল আপলোড করার প্রয়োজন নেই — এখানে সরাসরি ডাউনলোড লিংক আপডেট করলেই ব্যবহারকারীরা ডাউনলোড করতে পারবে।
               </p>
             </div>
 
             <button
               onClick={() => {
-                setSelectedApkFile(null);
+                setEditingAppId(null);
+                setAppForm({
+                  versionName: 'v3.5.0 (Latest)',
+                  versionCode: 350,
+                  releaseDate: new Date().toISOString().split('T')[0],
+                  size: '29.2 MB',
+                  isLatest: true,
+                  downloadCount: 1500000,
+                  minAndroid: 'Android 8.0 and above',
+                  description: 'নতুন হাই-স্পিড আর্নিং ইঞ্জিন ও অটোমেটেড উইথড্রয়াল সংবলিত সংস্করণ।',
+                  whatsNewText: 'নতুন দ্রুততম উইথড্রয়াল গেটওয়ে যুক্ত হয়েছে\n৩ডি পারফরম্যান্স অপ্টিমাইজেশন\nসিকিউরিটি প্যাচ হালনাগাদ',
+                  apkFileName: 'fleearn-v3.5.0-official.apk',
+                  apkDownloadUrl: 'https://github.com/fleearn-ecosystem/app/releases/download/v3.5.0/fleearn-v3.5.0-official.apk',
+                  status: 'published',
+                });
                 setShowAddAppModal(true);
               }}
               className="px-4 py-2.5 bg-[#044541] hover:bg-[#065b56] text-white font-bold text-xs rounded-xl flex items-center gap-2 cursor-pointer self-start sm:self-auto shadow-lg"
             >
-              <Upload className="w-4 h-4 text-red-400" />
-              <span>ফোন থেকে APK ফাইল আপলোড করুন</span>
-            </button>
-          </div>
-
-          {/* Cloud Storage indicator */}
-          <div className="p-4 bg-neutral-950/70 border border-white/5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5">
-              <Cloud className="w-4 h-4 text-emerald-400" />
-              <span className="text-neutral-300">
-                স্টোরেজ স্ট্যাটাস:{' '}
-                {supabaseConfig.isEnabled && supabaseConfig.url ? (
-                  <span className="text-emerald-400 font-bold">Supabase ক্লাউড স্টোরেজ সক্রিয়</span>
-                ) : (
-                  <span className="text-amber-400 font-medium">লোকাল ব্রাউজার স্টোরেজ (Supabase ট্যাব থেকে ক্লাউড সেটআপ করতে পারেন)</span>
-                )}
-              </span>
-            </div>
-            <button
-              onClick={() => setActiveTab('supabase')}
-              className="text-xs text-emerald-400 hover:text-white underline cursor-pointer self-start sm:self-auto"
-            >
-              Supabase কনফিগার করুন →
+              <Plus className="w-4 h-4 text-red-400" />
+              <span>নতুন APK ভার্সন ও লিংক যোগ করুন</span>
             </button>
           </div>
 
@@ -551,9 +447,7 @@ export const AdminDashboard: React.FC = () => {
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-[#044541] flex items-center justify-center text-white font-black text-lg border border-emerald-500/30">
-                      F
-                    </div>
+                    <FleearnLogo size="sm" />
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-white text-sm">{app.versionName}</span>
@@ -564,7 +458,7 @@ export const AdminDashboard: React.FC = () => {
                         )}
                       </div>
                       <span className="text-xs text-neutral-400 font-mono">
-                        রিলিজ: {app.releaseDate} · সাইজ: {app.size} · ফাইল: {app.apkFileName}
+                        রিলিজ: {app.releaseDate} · সাইজ: {app.size} · বিল্ড #{app.versionCode}
                       </span>
                     </div>
                   </div>
@@ -597,6 +491,31 @@ export const AdminDashboard: React.FC = () => {
 
                     <button
                       onClick={() => {
+                        setEditingAppId(app.id);
+                        setAppForm({
+                          versionName: app.versionName,
+                          versionCode: app.versionCode,
+                          releaseDate: app.releaseDate,
+                          size: app.size,
+                          isLatest: app.isLatest,
+                          downloadCount: app.downloadCount,
+                          minAndroid: app.minAndroid,
+                          description: app.description,
+                          whatsNewText: app.whatsNew.join('\n'),
+                          apkFileName: app.apkFileName || `fleearn-${app.versionName}.apk`,
+                          apkDownloadUrl: app.apkDownloadUrl,
+                          status: app.status as any,
+                        });
+                        setShowAddAppModal(true);
+                      }}
+                      className="p-1.5 text-emerald-400 hover:bg-emerald-950 rounded-lg cursor-pointer"
+                      title="ডাউনলোড লিংক এডিট করুন"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => {
                         if (confirm('এই APK ভার্সনটি মুছে ফেলতে চান?')) {
                           deleteAppVersion(app.id);
                           triggerToast('APK ভার্সন মুছে ফেলা হয়েছে!');
@@ -610,8 +529,34 @@ export const AdminDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="text-xs text-neutral-400 bg-neutral-900/60 p-3.5 rounded-xl space-y-1">
-                  <span className="font-semibold text-neutral-300 block mb-1">হটস নিউ চেঞ্জলগ:</span>
+                {/* Direct Download Link Box */}
+                <div className="p-3 bg-neutral-900/90 rounded-xl border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <LinkIcon className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="text-neutral-400 shrink-0 font-medium">সরাসরি ডাউনলোড লিংক:</span>
+                    <a
+                      href={app.apkDownloadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-white hover:text-emerald-300 font-mono underline truncate"
+                    >
+                      {app.apkDownloadUrl}
+                    </a>
+                  </div>
+
+                  <a
+                    href={app.apkDownloadUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 bg-[#044541] hover:bg-[#065b56] text-white text-[11px] font-semibold rounded-lg shrink-0 flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>লিংক টেস্ট করুন</span>
+                  </a>
+                </div>
+
+                <div className="text-xs text-neutral-400 bg-neutral-900/40 p-3 rounded-xl space-y-1">
+                  <span className="font-semibold text-neutral-300 block mb-0.5">চেঞ্জলগ / নতুন কী আছে:</span>
                   <ul className="list-disc list-inside space-y-0.5">
                     {app.whatsNew.map((w, idx) => (
                       <li key={idx}>{w}</li>
@@ -622,14 +567,14 @@ export const AdminDashboard: React.FC = () => {
             ))}
           </div>
 
-          {/* Add APK Modal with Device File Picker */}
+          {/* Add / Edit APK Modal */}
           {showAddAppModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
               <div className="w-full max-w-xl bg-neutral-950 border border-[#044541] rounded-3xl p-6 space-y-4 text-neutral-100 max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between border-b border-white/10 pb-3">
                   <h3 className="text-lg font-bold font-['Outfit'] flex items-center gap-2">
-                    <FileUp className="w-5 h-5 text-emerald-400" />
-                    <span>ফোন থেকে APK ফাইল আপলোড ও প্রকাশ</span>
+                    <Smartphone className="w-5 h-5 text-emerald-400" />
+                    <span>{editingAppId ? 'APK ডাউনলোড লিংক এডিট করুন' : 'নতুন APK ডাউনলোড লিংক যোগ করুন'}</span>
                   </h3>
                   <button
                     onClick={() => setShowAddAppModal(false)}
@@ -639,145 +584,138 @@ export const AdminDashboard: React.FC = () => {
                   </button>
                 </div>
 
-                <form onSubmit={handleAddApp} className="space-y-4 text-xs">
-                  {/* File Upload Drop Area */}
-                  <div className="space-y-1.5">
-                    <label className="text-neutral-300 font-semibold block">
-                      ডিভাইস থেকে APK ফাইল সিলেক্ট করুন
+                <form onSubmit={handleSaveAppVersion} className="space-y-4 text-xs">
+                  {/* Direct APK Link Field */}
+                  <div className="space-y-1.5 p-4 bg-[#044541]/20 rounded-2xl border border-emerald-500/30">
+                    <label className="text-emerald-300 font-bold block flex items-center gap-1.5">
+                      <LinkIcon className="w-4 h-4 text-red-400" />
+                      <span>সরাসরি APK ডাউনলোড URL / লিংক (Direct Download Link)*</span>
                     </label>
-                    <div
-                      onClick={() => apkFileInputRef.current?.click()}
-                      className="p-6 border-2 border-dashed border-[#044541] hover:border-emerald-400 rounded-2xl bg-neutral-900/50 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors"
-                    >
-                      <Upload className="w-8 h-8 text-emerald-400 animate-bounce" />
-                      <span className="font-bold text-white text-sm">
-                        {selectedApkFile ? selectedApkFile.name : 'ফোন বা কম্পিউটার থেকে .apk ফাইল বেছে নিন'}
-                      </span>
-                      <span className="text-[11px] text-neutral-400">
-                        {selectedApkFile
-                          ? `সাইজ: ${(selectedApkFile.size / (1024 * 1024)).toFixed(1)} MB (সিলেক্টেড)`
-                          : 'ট্যাপ করে ফোনের ফাইল ম্যানেজার বা স্টোরেজ থেকে সিলেক্ট করুন'}
-                      </span>
-                      <input
-                        ref={apkFileInputRef}
-                        type="file"
-                        accept=".apk,application/vnd.android.package-archive"
-                        onChange={handleApkFileSelect}
-                        className="hidden"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-neutral-400 block mb-1">ভার্সন নাম</label>
-                      <input
-                        type="text"
-                        required
-                        value={newApp.versionName}
-                        onChange={(e) => setNewApp({ ...newApp, versionName: e.target.value })}
-                        className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-neutral-400 block mb-1">ভার্সন কোড</label>
-                      <input
-                        type="number"
-                        required
-                        value={newApp.versionCode}
-                        onChange={(e) => setNewApp({ ...newApp, versionCode: Number(e.target.value) })}
-                        className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-neutral-400 block mb-1">ফাইল সাইজ</label>
-                      <input
-                        type="text"
-                        required
-                        value={newApp.size}
-                        onChange={(e) => setNewApp({ ...newApp, size: e.target.value })}
-                        className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-neutral-400 block mb-1">প্রাথমিক ডাউনলোড সংখ্যা</label>
-                      <input
-                        type="number"
-                        value={newApp.downloadCount}
-                        onChange={(e) => setNewApp({ ...newApp, downloadCount: Number(e.target.value) })}
-                        className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-neutral-400 block mb-1">APK ফাইল নাম</label>
                     <input
-                      type="text"
+                      type="url"
                       required
-                      value={newApp.apkFileName}
-                      onChange={(e) => setNewApp({ ...newApp, apkFileName: e.target.value })}
-                      className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
+                      placeholder="https://yourserver.com/app.apk অথবা Google Drive / GitHub release direct link"
+                      value={appForm.apkDownloadUrl}
+                      onChange={(e) => setAppForm({ ...appForm, apkDownloadUrl: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-neutral-900 border border-emerald-500/40 rounded-xl text-white font-mono focus:outline-none focus:border-emerald-400"
                     />
+                    <span className="text-[11px] text-neutral-400 block mt-1">
+                      ইউজাররা যখন সাইটে "Download APK" বাটনে চাপ দিবে তখন সরাসরি এই লিংক থেকে ডাউনলোড হবে।
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="text-neutral-400 block mb-1">বিবরণ</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-neutral-300 font-semibold">ভার্সন নাম (যেমন: v3.5.0)</label>
+                      <input
+                        type="text"
+                        required
+                        value={appForm.versionName}
+                        onChange={(e) => setAppForm({ ...appForm, versionName: e.target.value })}
+                        className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-neutral-300 font-semibold">ভার্সন কোড (যেমন: 350)</label>
+                      <input
+                        type="number"
+                        required
+                        value={appForm.versionCode}
+                        onChange={(e) => setAppForm({ ...appForm, versionCode: Number(e.target.value) })}
+                        className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-neutral-300 font-semibold">ফাইল সাইজ (যেমন: 28.5 MB)</label>
+                      <input
+                        type="text"
+                        required
+                        value={appForm.size}
+                        onChange={(e) => setAppForm({ ...appForm, size: e.target.value })}
+                        className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-neutral-300 font-semibold">রিলিজের তারিখ</label>
+                      <input
+                        type="date"
+                        required
+                        value={appForm.releaseDate}
+                        onChange={(e) => setAppForm({ ...appForm, releaseDate: e.target.value })}
+                        className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white"
+                      />
+                    </div>
+
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="text-neutral-300 font-semibold">ফাইল নাম (যেমন: fleearn-latest.apk)</label>
+                      <input
+                        type="text"
+                        value={appForm.apkFileName}
+                        onChange={(e) => setAppForm({ ...appForm, apkFileName: e.target.value })}
+                        className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="text-neutral-300 font-semibold">মিনিমাম অ্যান্ড্রয়েড রিকোয়ারমেন্ট</label>
+                      <input
+                        type="text"
+                        value={appForm.minAndroid}
+                        onChange={(e) => setAppForm({ ...appForm, minAndroid: e.target.value })}
+                        className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-neutral-300 font-semibold">অ্যাপের সংক্ষিপ্ত বিবরণ</label>
                     <textarea
                       rows={2}
-                      value={newApp.description}
-                      onChange={(e) => setNewApp({ ...newApp, description: e.target.value })}
-                      className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
+                      value={appForm.description}
+                      onChange={(e) => setAppForm({ ...appForm, description: e.target.value })}
+                      className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white"
                     />
                   </div>
 
-                  <div>
-                    <label className="text-neutral-400 block mb-1">হটস নিউ চেঞ্জলগ (প্রতি লাইনে ১টি)</label>
+                  <div className="space-y-1">
+                    <label className="text-neutral-300 font-semibold">হটস নিউ (প্রতি লাইনে একটি পয়েন্ট লিখুন)</label>
                     <textarea
                       rows={3}
-                      value={newApp.whatsNewText}
-                      onChange={(e) => setNewApp({ ...newApp, whatsNewText: e.target.value })}
-                      className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
+                      value={appForm.whatsNewText}
+                      onChange={(e) => setAppForm({ ...appForm, whatsNewText: e.target.value })}
+                      className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white font-mono"
                     />
                   </div>
 
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex items-center gap-2 pt-2">
                     <input
                       type="checkbox"
-                      id="isLatestCheck"
-                      checked={newApp.isLatest}
-                      onChange={(e) => setNewApp({ ...newApp, isLatest: e.target.checked })}
+                      id="isLatestToggle"
+                      checked={appForm.isLatest}
+                      onChange={(e) => setAppForm({ ...appForm, isLatest: e.target.checked })}
+                      className="w-4 h-4 rounded text-[#044541]"
                     />
-                    <label htmlFor="isLatestCheck" className="text-neutral-300">
-                      এটি লেটেস্ট মূল অফিসিয়াল সংস্করণ হিসেবে সেট করুন
+                    <label htmlFor="isLatestToggle" className="text-neutral-300 font-semibold">
+                      এটিকে মূল লেটেস্ট রিলিজ হিসেবে সেট করুন
                     </label>
                   </div>
 
-                  {uploadProgressText && (
-                    <div className="p-3 bg-emerald-950/80 border border-emerald-500/40 rounded-xl text-emerald-300 flex items-center gap-2 animate-pulse">
-                      <div className="w-3.5 h-3.5 border-2 border-emerald-300 border-t-transparent rounded-full animate-spin" />
-                      <span>{uploadProgressText}</span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end gap-2 pt-3">
+                  <div className="pt-3 border-t border-white/10 flex justify-end gap-3">
                     <button
                       type="button"
-                      disabled={isUploadingApk}
                       onClick={() => setShowAddAppModal(false)}
-                      className="px-4 py-2 bg-neutral-800 rounded-xl cursor-pointer"
+                      className="px-4 py-2 bg-neutral-800 text-neutral-300 rounded-xl cursor-pointer"
                     >
                       বাতিল
                     </button>
                     <button
                       type="submit"
-                      disabled={isUploadingApk}
-                      className="px-5 py-2 bg-[#044541] hover:bg-[#065b56] text-white font-bold rounded-xl cursor-pointer flex items-center gap-1.5"
+                      className="px-5 py-2 bg-[#044541] hover:bg-[#065b56] text-white font-bold rounded-xl cursor-pointer shadow-lg"
                     >
-                      {isUploadingApk ? 'আপলোড হচ্ছে...' : 'আপলোড ও প্রকাশ করুন'}
+                      {editingAppId ? 'লিংক আপডেট করুন' : 'সংরক্ষণ ও প্রকাশ করুন'}
                     </button>
                   </div>
                 </form>
@@ -787,159 +725,194 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 3: Company Info, Logo & Branding Manager (Comprehensive) */}
+      {/* TAB 3: Company Profile, Logo, Contacts & Address Editor */}
       {activeTab === 'company' && (
         <div className="p-6 md:p-8 bg-neutral-900/50 rounded-3xl border border-white/10 space-y-6">
           <div className="border-b border-white/10 pb-4">
             <h2 className="text-lg font-bold text-white font-['Outfit']">
-              কোম্পানির নাম, লোগো, ঠিকানা ও যোগাযোগের তথ্য এডিটর
+              কোম্পানির লোগো, নাম, ঠিকানা ও যোগাযোগের তথ্য এডিটর
             </h2>
             <p className="text-xs text-neutral-400">
-              এখানে পরিবর্তিত যেকোনো তথ্য ওয়েবসাইটের হেডার, ফুটার, যোগাযোগ ফর্ম এবং About Us পেজে সরাসরি পরিবর্তিত হবে।
+              এখানে পরিবর্তিত যেকোনো তথ্য ওয়েবসাইটের হেডার, ফুটার, এবাউট পেজ এবং ডকুমেন্টে তাৎক্ষণিক লাইভ আপডেট হবে।
             </p>
           </div>
 
-          <form onSubmit={handleCompanySave} className="space-y-5 text-xs">
-            {/* Logo Upload Section */}
-            <div className="p-4 bg-neutral-950/80 rounded-2xl border border-white/5 space-y-3">
-              <span className="text-neutral-300 font-bold block">কোম্পানি লোগো (Logo Image)</span>
-              <div className="flex items-center gap-4 flex-wrap">
-                <div className="w-16 h-16 rounded-2xl bg-neutral-900 border border-[#044541] flex items-center justify-center overflow-hidden shrink-0">
-                  {companyForm.logoUrl ? (
-                    <img
-                      src={companyForm.logoUrl}
-                      alt="Logo preview"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-2xl font-black text-white font-['Outfit']">F</span>
-                  )}
+          <form onSubmit={handleCompanySave} className="space-y-6 text-xs">
+            {/* Logo Preview & Custom Logo URL */}
+            <div className="p-6 bg-neutral-950/80 rounded-2xl border border-white/10 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="p-2 bg-neutral-900 rounded-2xl border border-emerald-500/30">
+                    <FleearnLogo size="lg" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-bold text-white block font-['Outfit']">
+                      ওয়েবসাইটের মূল লোগো প্রিভিউ
+                    </span>
+                    <span className="text-xs text-neutral-400">
+                      {companyForm.logoUrl
+                        ? 'কাস্টম লোগো URL সক্রিয় রয়েছে'
+                        : 'অফিসিয়াল Fleearn ভেক্টর এমব্লেম লোগো সক্রিয়'}
+                    </span>
+                  </div>
                 </div>
-                <div className="space-y-1.5 flex-1">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => logoInputRef.current?.click()}
-                      className="px-3.5 py-2 bg-[#044541] hover:bg-[#065b56] text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <ImageIcon className="w-3.5 h-3.5" />
-                      <span>ডিভাইস থেকে লোগো আপলোড করুন</span>
-                    </button>
-                    {companyForm.logoUrl && (
-                      <button
-                        type="button"
-                        onClick={() => setCompanyForm({ ...companyForm, logoUrl: '' })}
-                        className="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl cursor-pointer"
-                      >
-                        ডিফল্ট করুন
-                      </button>
-                    )}
-                  </div>
+
+                {companyForm.logoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompanyForm((prev) => ({ ...prev, logoUrl: '' }));
+                      triggerToast('ডিফল্ট অফিশিয়াল ভেক্টর লোগো রিস্টোর করা হয়েছে!');
+                    }}
+                    className="px-3.5 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs rounded-xl flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>ডিফল্ট ভেক্টর লোগো রিস্টোর করুন</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-1.5 pt-2">
+                <label className="text-neutral-300 font-semibold block">
+                  কাস্টম লোগো লিংক / URL (ইমেজ লিংক বা পিএনজি লিংক)
+                </label>
+                <div className="flex gap-2">
                   <input
-                    ref={logoInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoFileSelect}
-                    className="hidden"
+                    type="url"
+                    placeholder="https://example.com/logo.png (খালি রাখলে অফিশিয়াল ভেক্টর লোগো প্রদর্শিত হবে)"
+                    value={companyForm.logoUrl || ''}
+                    onChange={(e) => setCompanyForm({ ...companyForm, logoUrl: e.target.value })}
+                    className="flex-1 px-4 py-2.5 bg-neutral-900 border border-white/10 rounded-xl text-white font-mono"
                   />
-                  <div className="pt-1">
-                    <input
-                      type="text"
-                      placeholder="অথবা লোগোর সরাসরি ইমেজ URL দিন (https://...)"
-                      value={companyForm.logoUrl || ''}
-                      onChange={(e) => setCompanyForm({ ...companyForm, logoUrl: e.target.value })}
-                      className="w-full p-2 bg-neutral-900 border border-white/10 rounded-xl text-white text-[11px]"
-                    />
-                  </div>
+                  {companyForm.logoUrl && (
+                    <a
+                      href={companyForm.logoUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-xl flex items-center gap-1 shrink-0"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>প্রিভিউ</span>
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-neutral-400 block mb-1">কোম্পানির নাম (Company Name)</label>
+            {/* General Company Information */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="space-y-1.5">
+                <label className="font-semibold text-neutral-300">কোম্পানির নাম (Company Name)</label>
                 <input
                   type="text"
                   required
                   value={companyForm.name}
                   onChange={(e) => setCompanyForm({ ...companyForm, name: e.target.value })}
-                  className="w-full p-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-bold"
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-['Outfit'] font-bold"
                 />
               </div>
-              <div>
-                <label className="text-neutral-400 block mb-1">কোম্পানি স্লোগান (Tagline)</label>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-neutral-300">ট্যাগলাইন (Tagline)</label>
                 <input
                   type="text"
+                  required
                   value={companyForm.tagline}
                   onChange={(e) => setCompanyForm({ ...companyForm, tagline: e.target.value })}
-                  className="w-full p-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white"
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white"
                 />
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-neutral-400 block mb-1">অফিসিয়াল ইমেইল / Gmail</label>
+              <div className="space-y-1.5">
+                <label className="font-semibold text-neutral-300">অফিসিয়াল ইমেইল (Email)</label>
                 <input
                   type="email"
                   required
                   value={companyForm.email}
                   onChange={(e) => setCompanyForm({ ...companyForm, email: e.target.value })}
-                  className="w-full p-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
                 />
               </div>
-              <div>
-                <label className="text-neutral-400 block mb-1">হেল্পলাইন ফোন নাম্বার</label>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-neutral-300">হেল্পলাইন ফোন নম্বর (Phone)</label>
                 <input
                   type="text"
                   required
                   value={companyForm.phone}
                   onChange={(e) => setCompanyForm({ ...companyForm, phone: e.target.value })}
-                  className="w-full p-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
                 />
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-neutral-400 block mb-1">হোয়াটসঅ্যাপ নাম্বার (WhatsApp)</label>
+              <div className="space-y-1.5">
+                <label className="font-semibold text-neutral-300">হোয়াটসঅ্যাপ সাপোর্ট নম্বর (WhatsApp)</label>
                 <input
                   type="text"
-                  placeholder="+880 1XXXXXXXXX"
+                  placeholder="+880 1800-353276"
                   value={companyForm.whatsapp || ''}
                   onChange={(e) => setCompanyForm({ ...companyForm, whatsapp: e.target.value })}
-                  className="w-full p-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
                 />
               </div>
-              <div>
-                <label className="text-neutral-400 block mb-1">ওয়েবসাইট লিংক (Website URL)</label>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-neutral-300">অফিসিয়াল ওয়েবসাইট URL</label>
                 <input
-                  type="text"
+                  type="url"
+                  required
                   value={companyForm.webAddress}
                   onChange={(e) => setCompanyForm({ ...companyForm, webAddress: e.target.value })}
-                  className="w-full p-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
+                />
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="font-semibold text-neutral-300">হেডকোয়ার্টার ঠিকানা (Official Address)</label>
+                <textarea
+                  rows={2}
+                  required
+                  value={companyForm.address}
+                  onChange={(e) => setCompanyForm({ ...companyForm, address: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white leading-relaxed"
+                />
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="font-semibold text-neutral-300">
+                  আমাদের সম্পর্কে বিস্তারিত অনুচ্ছেদ (বাংলা - About Us Paragraph)
+                </label>
+                <textarea
+                  rows={4}
+                  required
+                  value={companyForm.aboutParagraphBn}
+                  onChange={(e) => setCompanyForm({ ...companyForm, aboutParagraphBn: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white leading-relaxed"
+                />
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="font-semibold text-neutral-300">
+                  About Us Paragraph (English Translation)
+                </label>
+                <textarea
+                  rows={4}
+                  required
+                  value={companyForm.aboutParagraphEn}
+                  onChange={(e) => setCompanyForm({ ...companyForm, aboutParagraphEn: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white leading-relaxed"
                 />
               </div>
             </div>
 
-            <div>
-              <label className="text-neutral-400 block mb-1">অফিসের পূর্ণাঙ্গ ঠিকানা (Address)</label>
-              <input
-                type="text"
-                value={companyForm.address}
-                onChange={(e) => setCompanyForm({ ...companyForm, address: e.target.value })}
-                className="w-full p-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white"
-              />
-            </div>
-
-            {/* Social Links */}
-            <div className="p-4 bg-neutral-950/80 rounded-2xl border border-white/5 space-y-3">
-              <span className="text-neutral-300 font-bold block">সোশ্যাল মিডিয়া প্রোফাইল লিংকসমূহ</span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-neutral-400 block mb-1 text-[11px]">YouTube চ্যানেল</label>
+            {/* Social Media Links */}
+            <div className="pt-4 border-t border-white/10 space-y-4">
+              <h3 className="font-bold text-sm text-emerald-400">অফিসিয়াল সোশ্যাল লিংকসমূহ (Social Channels)</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-neutral-400 font-semibold">YouTube চ্যানেল লিংক</label>
                   <input
-                    type="text"
+                    type="url"
                     value={companyForm.socials.youtube}
                     onChange={(e) =>
                       setCompanyForm({
@@ -947,13 +920,14 @@ export const AdminDashboard: React.FC = () => {
                         socials: { ...companyForm.socials, youtube: e.target.value },
                       })
                     }
-                    className="w-full p-2 bg-neutral-900 border border-white/10 rounded-xl text-white font-mono text-[11px]"
+                    className="w-full px-3.5 py-2 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
                   />
                 </div>
-                <div>
-                  <label className="text-neutral-400 block mb-1 text-[11px]">Facebook পেজ / গ্রুপ</label>
+
+                <div className="space-y-1">
+                  <label className="text-neutral-400 font-semibold">Facebook পেজ / গ্রুপ লিংক</label>
                   <input
-                    type="text"
+                    type="url"
                     value={companyForm.socials.facebook}
                     onChange={(e) =>
                       setCompanyForm({
@@ -961,13 +935,14 @@ export const AdminDashboard: React.FC = () => {
                         socials: { ...companyForm.socials, facebook: e.target.value },
                       })
                     }
-                    className="w-full p-2 bg-neutral-900 border border-white/10 rounded-xl text-white font-mono text-[11px]"
+                    className="w-full px-3.5 py-2 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
                   />
                 </div>
-                <div>
-                  <label className="text-neutral-400 block mb-1 text-[11px]">Telegram চ্যানেল</label>
+
+                <div className="space-y-1">
+                  <label className="text-neutral-400 font-semibold">Telegram অফিসিয়াল চ্যানেল লিংক</label>
                   <input
-                    type="text"
+                    type="url"
                     value={companyForm.socials.telegram}
                     onChange={(e) =>
                       setCompanyForm({
@@ -975,13 +950,29 @@ export const AdminDashboard: React.FC = () => {
                         socials: { ...companyForm.socials, telegram: e.target.value },
                       })
                     }
-                    className="w-full p-2 bg-neutral-900 border border-white/10 rounded-xl text-white font-mono text-[11px]"
+                    className="w-full px-3.5 py-2 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
                   />
                 </div>
-                <div>
-                  <label className="text-neutral-400 block mb-1 text-[11px]">Twitter / X</label>
+
+                <div className="space-y-1">
+                  <label className="text-neutral-400 font-semibold">Instagram প্রোফাইল লিংক</label>
                   <input
-                    type="text"
+                    type="url"
+                    value={companyForm.socials.instagram}
+                    onChange={(e) =>
+                      setCompanyForm({
+                        ...companyForm,
+                        socials: { ...companyForm.socials, instagram: e.target.value },
+                      })
+                    }
+                    className="w-full px-3.5 py-2 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-neutral-400 font-semibold">Twitter / X প্রোফাইল লিংক</label>
+                  <input
+                    type="url"
                     value={companyForm.socials.twitter}
                     onChange={(e) =>
                       setCompanyForm({
@@ -989,200 +980,58 @@ export const AdminDashboard: React.FC = () => {
                         socials: { ...companyForm.socials, twitter: e.target.value },
                       })
                     }
-                    className="w-full p-2 bg-neutral-900 border border-white/10 rounded-xl text-white font-mono text-[11px]"
+                    className="w-full px-3.5 py-2 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-neutral-400 font-semibold">Pinterest প্রোফাইল লিংক</label>
+                  <input
+                    type="url"
+                    value={companyForm.socials.pinterest}
+                    onChange={(e) =>
+                      setCompanyForm({
+                        ...companyForm,
+                        socials: { ...companyForm.socials, pinterest: e.target.value },
+                      })
+                    }
+                    className="w-full px-3.5 py-2 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono"
                   />
                 </div>
               </div>
             </div>
 
-            {/* About Us Paragraph */}
-            <div>
-              <label className="text-neutral-300 font-bold block mb-1.5">
-                About Us মূল প্যারাগ্রাফ (বাংলা)
-              </label>
-              <textarea
-                rows={5}
-                value={companyForm.aboutParagraphBn}
-                onChange={(e) => setCompanyForm({ ...companyForm, aboutParagraphBn: e.target.value })}
-                className="w-full p-3.5 bg-neutral-950 border border-white/10 rounded-xl text-white leading-relaxed focus:outline-none focus:border-[#044541]"
-              />
-            </div>
-
-            <div className="pt-2">
+            <div className="pt-4 border-t border-white/10">
               <button
                 type="submit"
                 className="px-6 py-3 bg-[#044541] hover:bg-[#065b56] text-white font-bold rounded-xl shadow-lg cursor-pointer"
               >
-                কোম্পানির তথ্য সংরক্ষণ করুন
+                কোম্পানির যাবতীয় তথ্য ও লোগো Firestore-এ সংরক্ষণ করুন
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* TAB 4: Supabase Cloud Storage & Backend Integration */}
-      {activeTab === 'supabase' && (
-        <div className="p-6 md:p-8 bg-neutral-900/50 rounded-3xl border border-white/10 space-y-6">
-          <div className="border-b border-white/10 pb-4">
-            <h2 className="text-lg font-bold text-white font-['Outfit'] flex items-center gap-2">
-              <Database className="w-5 h-5 text-emerald-400" />
-              <span>Supabase ক্লাউড স্টোরেজ ও ব্যাকএন্ড কানেকশন</span>
-            </h2>
-            <p className="text-xs text-neutral-400">
-              ওয়েবসাইটের APK ফাইল ও নোটিশ ক্লাউড স্টোরেজে রাখতে Supabase প্রজেক্ট কানেক্ট করুন।
-            </p>
-          </div>
-
-          {/* Guide Card in Bengali explaining what is needed */}
-          <div className="p-5 bg-gradient-to-br from-emerald-950/60 to-neutral-950 rounded-2xl border border-[#044541] space-y-3">
-            <div className="flex items-center gap-2 text-emerald-300 text-sm font-bold">
-              <HelpCircle className="w-4 h-4 text-emerald-400" />
-              <span>সুপারবেস (Supabase) কানেক্ট করার জন্য যা যা লাগবে:</span>
-            </div>
-            <div className="text-xs text-neutral-300 space-y-2 leading-relaxed">
-              <p>
-                ১. <strong>Project URL:</strong> আপনার Supabase ড্যাশবোর্ডের Settings → API তে গেলে প্রজেক্ট URL পাবেন (যেমন: <code className="text-emerald-400 bg-neutral-900 px-1 py-0.5 rounded">https://xyzcompany.supabase.co</code>)
-              </p>
-              <p>
-                ২. <strong>Anon Public Key:</strong> Settings → API সেকশনে থাকা <code className="text-emerald-400 bg-neutral-900 px-1 py-0.5 rounded">anon public</code> API Key
-              </p>
-              <p>
-                ৩. <strong>Storage Bucket Name:</strong> Supabase-এর Storage মেন্যুতে গিয়ে একটি নতুন বাকেট তৈরি করুন (যেমন: <code className="text-emerald-400 bg-neutral-900 px-1 py-0.5 rounded">fleearn-storage</code>) এবং সেটিকে <strong>Public Bucket</strong> অপশন চেক করুন।
-              </p>
-            </div>
-          </div>
-
-          <form onSubmit={handleSaveSupabaseConfig} className="space-y-4 text-xs">
-            <div className="flex items-center gap-3 p-3.5 bg-neutral-950 rounded-xl border border-white/5">
-              <input
-                type="checkbox"
-                id="enableSupabaseCheck"
-                checked={supabaseForm.isEnabled}
-                onChange={(e) => setSupabaseForm({ ...supabaseForm, isEnabled: e.target.checked })}
-                className="w-4 h-4 rounded text-[#044541]"
-              />
-              <label htmlFor="enableSupabaseCheck" className="text-white font-bold cursor-pointer">
-                সরাসরি Supabase লাইভ স্টোরেজ মোড চালু করুন (Live Storage Sync)
-              </label>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-neutral-300 font-semibold">Supabase Project URL</label>
-              <input
-                type="text"
-                placeholder="https://your-project-id.supabase.co"
-                value={supabaseForm.url}
-                onChange={(e) => setSupabaseForm({ ...supabaseForm, url: e.target.value })}
-                className="w-full p-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono focus:border-[#044541]"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-neutral-300 font-semibold">Supabase Anon Public API Key</label>
-              <input
-                type="password"
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                value={supabaseForm.anonKey}
-                onChange={(e) => setSupabaseForm({ ...supabaseForm, anonKey: e.target.value })}
-                className="w-full p-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono focus:border-[#044541]"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-neutral-300 font-semibold">Storage Bucket Name</label>
-              <input
-                type="text"
-                placeholder="fleearn-storage"
-                value={supabaseForm.bucketName}
-                onChange={(e) => setSupabaseForm({ ...supabaseForm, bucketName: e.target.value })}
-                className="w-full p-2.5 bg-neutral-950 border border-white/10 rounded-xl text-white font-mono focus:border-[#044541]"
-              />
-            </div>
-
-            {supabaseTestResult && (
-              <div
-                className={`p-3.5 rounded-xl border flex items-center gap-2 ${
-                  supabaseTestResult.success
-                    ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
-                    : 'bg-red-950/80 border-red-500/50 text-red-300'
-                }`}
-              >
-                {supabaseTestResult.success ? (
-                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-                )}
-                <span>{supabaseTestResult.message}</span>
-              </div>
-            )}
-
-            <div className="flex items-center gap-3 pt-2 flex-wrap">
-              <button
-                type="submit"
-                className="px-6 py-2.5 bg-[#044541] hover:bg-[#065b56] text-white font-bold rounded-xl shadow-lg cursor-pointer"
-              >
-                কনফিগারেশন সংরক্ষণ করুন
-              </button>
-
-              <button
-                type="button"
-                disabled={isTestingSupabase}
-                onClick={handleTestSupabase}
-                className="px-5 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold rounded-xl cursor-pointer flex items-center gap-1.5"
-              >
-                {isTestingSupabase ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                    <span>কানেকশন টেস্ট হচ্ছে...</span>
-                  </>
-                ) : (
-                  <span>কানেকশন টেস্ট করুন</span>
-                )}
-              </button>
-
-              <button
-                type="button"
-                disabled={isCloudSyncing}
-                onClick={async () => {
-                  const res = await syncAllToSupabase();
-                  triggerToast(res.message);
-                }}
-                className="px-5 py-2.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 font-semibold rounded-xl cursor-pointer flex items-center gap-1.5"
-              >
-                <Cloud className={`w-3.5 h-3.5 ${isCloudSyncing ? 'animate-bounce text-amber-400' : 'text-emerald-300'}`} />
-                <span>{isCloudSyncing ? 'সিঙ্ক হচ্ছে...' : 'এখনই ক্লাউডে সব ডেটা সিঙ্ক করুন'}</span>
-              </button>
-            </div>
-
-            {cloudSyncStatus && (
-              <div className="p-3 bg-neutral-950 rounded-xl border border-white/5 text-[11px] text-neutral-400 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                <span>{cloudSyncStatus}</span>
-              </div>
-            )}
-          </form>
-        </div>
-      )}
-
-      {/* TAB 5: Notice Board Manager */}
+      {/* TAB 4: Notice Board Editor */}
       {activeTab === 'notices' && (
         <div className="p-6 md:p-8 bg-neutral-900/50 rounded-3xl border border-white/10 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
             <div>
               <h2 className="text-lg font-bold text-white font-['Outfit']">
-                নোটিশ বোর্ড ম্যানেজমেন্ট
+                নোটিশ বোর্ড ম্যানেজমেন্ট (Firestore Live)
               </h2>
               <p className="text-xs text-neutral-400">
-                লেটেস্ট ও সক্রিয় নোটিশ অথবা আর্কাইভ/এক্সপায়ার্ড নোটিশ পরিচালনা করুন।
+                নতুন জরুরি বিজ্ঞপ্তি প্রকাশ ও পুরাতন নোটিশ এডিট বা রিমুভ করুন।
               </p>
             </div>
 
             <button
               onClick={() => setShowAddNoticeModal(true)}
-              className="px-4 py-2 bg-[#044541] hover:bg-[#065b56] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+              className="px-4 py-2.5 bg-[#044541] hover:bg-[#065b56] text-white font-bold text-xs rounded-xl flex items-center gap-2 cursor-pointer self-start sm:self-auto shadow-lg"
             >
               <Plus className="w-4 h-4 text-red-400" />
-              <span>নতুন নোটিশ যোগ করুন</span>
+              <span>নতুন নোটিশ লিখুন</span>
             </button>
           </div>
 
@@ -1190,47 +1039,50 @@ export const AdminDashboard: React.FC = () => {
             {notices.map((n) => (
               <div
                 key={n.id}
-                className="p-4 bg-neutral-950/80 rounded-2xl border border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                className="p-5 bg-neutral-950/80 rounded-2xl border border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4"
               >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        n.status === 'active'
-                          ? 'bg-emerald-950 text-emerald-400'
-                          : 'bg-neutral-800 text-neutral-400'
-                      }`}
-                    >
-                      {n.status === 'active' ? 'সক্রিয়' : 'এক্সপায়ার্ড'}
+                <div className="space-y-1.5 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
+                      {n.category}
                     </span>
-                    <span className="text-[10px] text-neutral-500 font-mono">{n.date}</span>
-                    <span className="text-xs text-white font-bold">{n.title}</span>
+                    <span className="text-sm font-bold text-white">{n.title}</span>
                   </div>
-                  <p className="text-xs text-neutral-400 line-clamp-1">{n.content}</p>
+                  <p className="text-xs text-neutral-400 line-clamp-2 leading-relaxed">
+                    {n.content}
+                  </p>
+                  <div className="flex items-center gap-4 text-[11px] text-neutral-500 font-mono">
+                    <span>তারিখ: {n.date}</span>
+                    <span>ভিউ: {n.views.toLocaleString()}</span>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 self-start md:self-auto">
                   <button
                     onClick={() => {
                       updateNotice(n.id, {
                         status: n.status === 'active' ? 'expired' : 'active',
                       });
-                      triggerToast('নোটিশের স্ট্যাটাস পরিবর্তিত হয়েছে!');
+                      triggerToast('নোটিশের স্ট্যাটাস পরিবর্তন করা হয়েছে!');
                     }}
-                    className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-xs rounded-lg cursor-pointer"
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
+                      n.status === 'active'
+                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-neutral-800 text-neutral-400'
+                    }`}
                   >
-                    {n.status === 'active' ? 'এক্সপায়ার্ড করুন' : 'সক্রিয় করুন'}
+                    {n.status === 'active' ? 'সক্রিয়' : 'মেয়াদোত্তীর্ণ'}
                   </button>
 
                   <button
                     onClick={() => {
-                      if (confirm('নোটিশটি ডিলিট করতে চান?')) {
+                      if (confirm('এই নোটিশটি মুছে ফেলতে চান?')) {
                         deleteNotice(n.id);
                         triggerToast('নোটিশ মুছে ফেলা হয়েছে!');
                       }
                     }}
-                    className="p-1.5 text-red-400 hover:bg-red-950 rounded-lg cursor-pointer"
-                    aria-label="Delete"
+                    className="p-2 text-red-400 hover:bg-red-950 rounded-lg cursor-pointer"
+                    aria-label="Delete Notice"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -1243,81 +1095,70 @@ export const AdminDashboard: React.FC = () => {
           {showAddNoticeModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
               <div className="w-full max-w-lg bg-neutral-950 border border-[#044541] rounded-3xl p-6 space-y-4 text-neutral-100">
-                <h3 className="text-lg font-bold font-['Outfit']">নতুন নোটিশ তৈরি করুন</h3>
-                <form onSubmit={handleAddNotice} className="space-y-3 text-xs">
-                  <div>
-                    <label className="text-neutral-400 block mb-1">নোটিশ শিরোনাম (বাংলা)</label>
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <h3 className="text-lg font-bold font-['Outfit'] flex items-center gap-2">
+                    <Bell className="w-5 h-5 text-emerald-400" />
+                    <span>নতুন প্ল্যাটফর্ম নোটিশ প্রকাশ</span>
+                  </h3>
+                  <button
+                    onClick={() => setShowAddNoticeModal(false)}
+                    className="text-neutral-400 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleAddNotice} className="space-y-4 text-xs">
+                  <div className="space-y-1">
+                    <label className="text-neutral-300 font-semibold">শিরোনাম (বাংলায়)</label>
                     <input
                       type="text"
                       required
                       value={newNotice.title}
                       onChange={(e) => setNewNotice({ ...newNotice, title: e.target.value })}
-                      className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
+                      className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white"
                     />
                   </div>
 
-                  <div>
-                    <label className="text-neutral-400 block mb-1">নোটিশ শিরোনাম (English - Optional)</label>
-                    <input
-                      type="text"
-                      value={newNotice.titleEn}
-                      onChange={(e) => setNewNotice({ ...newNotice, titleEn: e.target.value })}
-                      className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
-                    />
+                  <div className="space-y-1">
+                    <label className="text-neutral-300 font-semibold">ক্যাটেগরি</label>
+                    <select
+                      value={newNotice.category}
+                      onChange={(e) => setNewNotice({ ...newNotice, category: e.target.value as any })}
+                      className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white"
+                    >
+                      <option value="Payment">Payment (পেমেন্ট)</option>
+                      <option value="Update">Update (আপডেট)</option>
+                      <option value="Security">Security (নিরাপত্তা)</option>
+                      <option value="Earning">Earning (আর্নিং)</option>
+                      <option value="System">System (সিস্টেম)</option>
+                    </select>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-neutral-400 block mb-1">ক্যাটাগরি</label>
-                      <select
-                        value={newNotice.category}
-                        onChange={(e) => setNewNotice({ ...newNotice, category: e.target.value as any })}
-                        className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
-                      >
-                        <option value="Payment">Payment</option>
-                        <option value="Update">Update</option>
-                        <option value="Security">Security</option>
-                        <option value="System">System</option>
-                        <option value="Earning">Earning</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-neutral-400 block mb-1">স্ট্যাটাস</label>
-                      <select
-                        value={newNotice.status}
-                        onChange={(e) => setNewNotice({ ...newNotice, status: e.target.value as any })}
-                        className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
-                      >
-                        <option value="active">সক্রিয় (Active)</option>
-                        <option value="expired">এক্সপায়ার্ড (Expired)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-neutral-400 block mb-1">নোটিশ বিস্তারিত বার্তা</label>
+                  <div className="space-y-1">
+                    <label className="text-neutral-300 font-semibold">বিস্তারিত বিষয়বস্তু</label>
                     <textarea
                       rows={4}
                       required
                       value={newNotice.content}
                       onChange={(e) => setNewNotice({ ...newNotice, content: e.target.value })}
-                      className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
+                      className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white leading-relaxed"
                     />
                   </div>
 
-                  <div className="flex justify-end gap-2 pt-2">
+                  <div className="pt-2 flex justify-end gap-3">
                     <button
                       type="button"
                       onClick={() => setShowAddNoticeModal(false)}
-                      className="px-4 py-2 bg-neutral-800 rounded-xl cursor-pointer"
+                      className="px-4 py-2 bg-neutral-800 text-neutral-300 rounded-xl cursor-pointer"
                     >
                       বাতিল
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-2 bg-[#044541] hover:bg-[#065b56] text-white font-bold rounded-xl cursor-pointer"
+                      className="px-5 py-2 bg-[#044541] hover:bg-[#065b56] text-white font-bold rounded-xl cursor-pointer shadow-lg"
                     >
-                      প্রকাশ করুন
+                      Firestore-এ নোটিশ প্রকাশ করুন
                     </button>
                   </div>
                 </form>
@@ -1327,25 +1168,25 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 6: Pricing Plans Manager */}
+      {/* TAB 5: Pricing Plans Editor */}
       {activeTab === 'pricing' && (
         <div className="p-6 md:p-8 bg-neutral-900/50 rounded-3xl border border-white/10 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
             <div>
               <h2 className="text-lg font-bold text-white font-['Outfit']">
-                প্রাইজিং প্ল্যানস ও FSD ভার্চুয়াল কারেন্সি
+                প্রাইজিং ও মেম্বারশিপ বুস্টার প্যাকেজ
               </h2>
               <p className="text-xs text-neutral-400">
-                নতুন প্ল্যান তৈরি করুন, ডলার মূল্য ও FSD কারেন্সি এডিট করুন।
+                ইউজারদের জন্য FSD ও USD মূল্যের সাবস্ক্রিপশন প্ল্যানসমূহ।
               </p>
             </div>
 
             <button
               onClick={() => setShowAddPlanModal(true)}
-              className="px-4 py-2 bg-[#044541] hover:bg-[#065b56] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+              className="px-4 py-2.5 bg-[#044541] hover:bg-[#065b56] text-white font-bold text-xs rounded-xl flex items-center gap-2 cursor-pointer self-start sm:self-auto shadow-lg"
             >
               <Plus className="w-4 h-4 text-red-400" />
-              <span>নতুন প্ল্যান তৈরি করুন</span>
+              <span>নতুন প্যাকেজ তৈরি করুন</span>
             </button>
           </div>
 
@@ -1353,43 +1194,43 @@ export const AdminDashboard: React.FC = () => {
             {pricingPlans.map((plan) => (
               <div
                 key={plan.id}
-                className="p-5 bg-neutral-950/80 rounded-2xl border border-white/5 space-y-4 flex flex-col justify-between"
+                className="p-6 bg-neutral-950/80 rounded-2xl border border-white/10 flex flex-col justify-between space-y-4"
               >
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-white text-base">{plan.name}</h3>
-                    <button
-                      onClick={() => {
-                        if (confirm('এই প্ল্যানটি ডিলিট করতে চান?')) {
-                          deletePricingPlan(plan.id);
-                          triggerToast('প্ল্যান মুছে ফেলা হয়েছে!');
-                        }
-                      }}
-                      className="text-red-400 hover:text-red-300"
-                      aria-label="Delete"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <span className="font-bold text-white text-base font-['Outfit']">{plan.name}</span>
+                    {plan.popular && (
+                      <span className="px-2 py-0.5 rounded-full bg-red-950 text-red-300 text-[10px] font-bold">
+                        জনপ্রিয়
+                      </span>
+                    )}
                   </div>
-
-                  <div className="flex items-baseline gap-2 font-mono">
-                    <span className="text-2xl font-bold text-white">${plan.priceUSD}</span>
-                    <span className="text-sm font-bold text-emerald-400">({plan.fsdAmount} FSD)</span>
+                  <div className="text-2xl font-black text-white font-mono">
+                    ${plan.priceUSD}{' '}
+                    <span className="text-xs text-neutral-400 font-normal">({plan.fsdAmount} FSD)</span>
                   </div>
-
-                  <span className="text-xs text-neutral-400 font-mono block">
-                    {plan.validity}
-                  </span>
-
-                  <ul className="text-xs text-neutral-400 space-y-1 pt-2">
+                  <span className="text-xs text-emerald-400 block font-mono">{plan.validity}</span>
+                  <ul className="space-y-1.5 text-xs text-neutral-300 pt-2 border-t border-white/5">
                     {plan.features.map((f, i) => (
-                      <li key={i} className="flex items-start gap-1">
-                        <span className="text-emerald-400">✓</span>
+                      <li key={i} className="flex items-start gap-1.5">
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
                         <span>{f}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
+
+                <button
+                  onClick={() => {
+                    if (confirm('এই প্ল্যানটি মুছে ফেলতে চান?')) {
+                      deletePricingPlan(plan.id);
+                      triggerToast('প্ল্যান মুছে ফেলা হয়েছে!');
+                    }
+                  }}
+                  className="w-full py-2 bg-red-950/70 hover:bg-red-900 text-red-200 text-xs rounded-xl cursor-pointer"
+                >
+                  প্ল্যান মুছে ফেলুন
+                </button>
               </div>
             ))}
           </div>
@@ -1398,77 +1239,76 @@ export const AdminDashboard: React.FC = () => {
           {showAddPlanModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
               <div className="w-full max-w-md bg-neutral-950 border border-[#044541] rounded-3xl p-6 space-y-4 text-neutral-100">
-                <h3 className="text-lg font-bold font-['Outfit']">নতুন প্রাইজিং প্ল্যান</h3>
-                <form onSubmit={handleAddPlan} className="space-y-3 text-xs">
-                  <div>
-                    <label className="text-neutral-400 block mb-1">প্ল্যানের নাম</label>
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <h3 className="text-lg font-bold font-['Outfit'] flex items-center gap-2">
+                    <DollarSign className="w-5 h-5 text-emerald-400" />
+                    <span>নতুন মেম্বারশিপ প্ল্যান</span>
+                  </h3>
+                  <button
+                    onClick={() => setShowAddPlanModal(false)}
+                    className="text-neutral-400 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleAddPlan} className="space-y-4 text-xs">
+                  <div className="space-y-1">
+                    <label className="text-neutral-300 font-semibold">প্ল্যানের নাম</label>
                     <input
                       type="text"
                       required
                       value={newPlan.name}
                       onChange={(e) => setNewPlan({ ...newPlan, name: e.target.value })}
-                      className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
+                      className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-neutral-400 block mb-1">মূল্য (USD $)</label>
+                    <div className="space-y-1">
+                      <label className="text-neutral-300 font-semibold">মূল্য (USD)</label>
                       <input
                         type="number"
                         required
                         value={newPlan.priceUSD}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setNewPlan({ ...newPlan, priceUSD: val, fsdAmount: val });
-                        }}
-                        className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
+                        onChange={(e) => setNewPlan({ ...newPlan, priceUSD: Number(e.target.value), fsdAmount: Number(e.target.value) })}
+                        className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white font-mono"
                       />
                     </div>
-                    <div>
-                      <label className="text-neutral-400 block mb-1">ভার্চুয়াল কারেন্সি (FSD)</label>
+                    <div className="space-y-1">
+                      <label className="text-neutral-300 font-semibold">মেয়াদ</label>
                       <input
-                        type="number"
+                        type="text"
                         required
-                        value={newPlan.fsdAmount}
-                        onChange={(e) => setNewPlan({ ...newPlan, fsdAmount: Number(e.target.value) })}
-                        className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
+                        value={newPlan.validity}
+                        onChange={(e) => setNewPlan({ ...newPlan, validity: e.target.value })}
+                        className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white"
                       />
                     </div>
                   </div>
 
-                  <div>
-                    <label className="text-neutral-400 block mb-1">ভ্যালিডিটি</label>
-                    <input
-                      type="text"
-                      required
-                      value={newPlan.validity}
-                      onChange={(e) => setNewPlan({ ...newPlan, validity: e.target.value })}
-                      className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-neutral-400 block mb-1">সুবিধাসমূহ (প্রতি লাইনে ১টি)</label>
+                  <div className="space-y-1">
+                    <label className="text-neutral-300 font-semibold">সুবিধাসমূহ (প্রতি লাইনে একটি)</label>
                     <textarea
                       rows={3}
+                      required
                       value={newPlan.featuresText}
                       onChange={(e) => setNewPlan({ ...newPlan, featuresText: e.target.value })}
-                      className="w-full p-2.5 bg-neutral-900 border border-white/10 rounded-xl"
+                      className="w-full px-3.5 py-2 bg-neutral-900 border border-white/10 rounded-xl text-white font-mono"
                     />
                   </div>
 
-                  <div className="flex justify-end gap-2 pt-2">
+                  <div className="pt-2 flex justify-end gap-3">
                     <button
                       type="button"
                       onClick={() => setShowAddPlanModal(false)}
-                      className="px-4 py-2 bg-neutral-800 rounded-xl cursor-pointer"
+                      className="px-4 py-2 bg-neutral-800 text-neutral-300 rounded-xl cursor-pointer"
                     >
                       বাতিল
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-2 bg-[#044541] hover:bg-[#065b56] text-white font-bold rounded-xl cursor-pointer"
+                      className="px-5 py-2 bg-[#044541] hover:bg-[#065b56] text-white font-bold rounded-xl cursor-pointer shadow-lg"
                     >
                       প্ল্যান তৈরি করুন
                     </button>
@@ -1480,139 +1320,165 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 7: Skill Courses Manager */}
+      {/* TAB 6: Courses Editor */}
       {activeTab === 'courses' && (
         <div className="p-6 md:p-8 bg-neutral-900/50 rounded-3xl border border-white/10 space-y-6">
           <div className="border-b border-white/10 pb-4">
             <h2 className="text-lg font-bold text-white font-['Outfit']">
-              স্কিল ও আর্নিং কোর্সসমূহ
+              স্কিল ও আর্নিং কোর্স ক্যাটালগ
             </h2>
+            <p className="text-xs text-neutral-400">
+              প্ল্যাটফর্মে তালিকাভুক্ত ৪টি প্রিমিয়াম ফ্রিল্যান্সিং কোর্স পরিচালনা করুন।
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {courses.map((c) => (
               <div
                 key={c.id}
-                className="p-4 bg-neutral-950/80 rounded-2xl border border-white/5 flex items-center justify-between gap-4"
+                className="p-5 bg-neutral-950/80 rounded-2xl border border-white/10 flex gap-4"
               >
-                <div>
-                  <h4 className="font-bold text-white text-sm">{c.title}</h4>
-                  <span className="text-xs text-neutral-400 font-mono">
-                    {c.instructor} · ${c.priceUSD} ({c.priceFSD} FSD)
+                <img
+                  src={c.thumbnail}
+                  alt={c.title}
+                  className="w-24 h-24 rounded-xl object-cover shrink-0 border border-white/10"
+                />
+                <div className="space-y-1.5 flex-1">
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 font-bold border border-emerald-500/30">
+                    {c.category}
                   </span>
+                  <h3 className="text-xs font-bold text-white line-clamp-2">{c.title}</h3>
+                  <div className="text-[11px] text-neutral-400">
+                    ইন্সট্রাক্টর: <span className="text-neutral-200">{c.instructor}</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="font-mono text-emerald-400 font-bold text-xs">${c.priceUSD} ({c.priceFSD} FSD)</span>
+                    <button
+                      onClick={() => {
+                        if (confirm('এই কোর্সটি মুছে ফেলতে চান?')) {
+                          deleteCourse(c.id);
+                          triggerToast('কোর্স মুছে ফেলা হয়েছে!');
+                        }
+                      }}
+                      className="p-1 text-red-400 hover:bg-red-950 rounded cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => {
-                    if (confirm('কোর্সটি মুছে ফেলতে চান?')) {
-                      deleteCourse(c.id);
-                      triggerToast('কোর্স মুছে ফেলা হয়েছে!');
-                    }
-                  }}
-                  className="text-red-400 hover:text-red-300 cursor-pointer"
-                  aria-label="Delete"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* TAB 8: Important Legal Documents Editor */}
+      {/* TAB 7: Documents & Policies Editor */}
       {activeTab === 'docs' && (
         <div className="p-6 md:p-8 bg-neutral-900/50 rounded-3xl border border-white/10 space-y-6">
           <div className="border-b border-white/10 pb-4">
             <h2 className="text-lg font-bold text-white font-['Outfit']">
-              গুরুত্বপূর্ণ ডকুমেন্টস ও নীতিমালা সম্পাদনা
+              আইনগত ডকুমেন্টস ও ব্যবহারবিধি পরিমার্জন
             </h2>
             <p className="text-xs text-neutral-400">
-              টার্মস অ্যান্ড কন্ডিশনস, প্রাইভেসি পলিসি, ইউজ পলিসি সরাসরি এডিট করুন।
+              টার্মস, প্রাইভেসি পলিসি, ইউজ পলিসি ও উইথড্রয়াল নীতিমালার সরাসরি টেক্সট এডিট করুন।
             </p>
           </div>
 
           <div className="space-y-6">
             {importantDocs.map((doc) => (
-              <div key={doc.id} className="p-5 bg-neutral-950/80 rounded-2xl border border-white/5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-white text-sm">{doc.titleBn}</h3>
-                  <span className="text-xs text-neutral-500 font-mono">{doc.id}</span>
+              <div
+                key={doc.id}
+                className="p-6 bg-neutral-950/80 rounded-2xl border border-white/10 space-y-4"
+              >
+                <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                  <h3 className="text-sm font-bold text-white font-['Outfit']">
+                    {doc.titleBn} ({doc.id})
+                  </h3>
+                  <span className="text-xs text-neutral-400 font-mono">
+                    আপডেট: {doc.lastUpdated}
+                  </span>
                 </div>
 
-                <textarea
-                  rows={6}
-                  defaultValue={doc.contentBn}
-                  onBlur={(e) => {
-                    updateImportantDoc(doc.id, {
-                      contentBn: e.target.value,
-                      lastUpdated: new Date().toISOString().split('T')[0],
-                    });
-                    triggerToast(`${doc.titleBn} সফলভাবে আপডেট হয়েছে!`);
-                  }}
-                  className="w-full p-3 bg-neutral-900 border border-white/10 rounded-xl text-xs text-neutral-200 leading-relaxed focus:outline-none focus:border-[#044541]"
-                />
+                <div className="space-y-2">
+                  <label className="text-xs text-neutral-400 block font-semibold">
+                    ডকুমেন্ট কন্টেন্ট (বাংলা):
+                  </label>
+                  <textarea
+                    rows={6}
+                    defaultValue={doc.contentBn}
+                    onBlur={(e) => {
+                      updateImportantDoc(doc.id, {
+                        contentBn: e.target.value,
+                        lastUpdated: new Date().toISOString().split('T')[0],
+                      });
+                      triggerToast(`${doc.titleBn} সফলভাবে আপডেট হয়েছে!`);
+                    }}
+                    className="w-full p-4 bg-neutral-900 border border-white/10 rounded-xl text-xs text-neutral-200 leading-relaxed font-mono focus:outline-none focus:border-[#044541]"
+                  />
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* TAB 9: Support Tickets Viewer */}
+      {/* TAB 8: Support Tickets & User Queries */}
       {activeTab === 'inquiries' && (
         <div className="p-6 md:p-8 bg-neutral-900/50 rounded-3xl border border-white/10 space-y-6">
           <div className="border-b border-white/10 pb-4">
             <h2 className="text-lg font-bold text-white font-['Outfit']">
-              ব্যবহারকারীদের জমা দেওয়া মেসেজ ও রিপোর্টস
+              ব্যবহারকারীদের সাপোর্ট টিকিট ও মেসেজ (Firestore)
             </h2>
             <p className="text-xs text-neutral-400">
-              সাপোর্ট বক্স, রিপোর্ট বক্স ও যোগাযোগ ফর্মের মাধ্যমে আসা ইনকোয়ারিসমূহ
+              হোমপেজের সাপোর্ট ও কমপ্লেইন ফর্ম থেকে জমাকৃত সকল বার্তা।
             </p>
           </div>
 
           {supportTickets.length === 0 ? (
-            <div className="p-8 text-center bg-neutral-950/40 rounded-2xl border border-white/5 text-xs text-neutral-400">
-              বর্তমানে কোনো নতুন জমা দেওয়া মেসেজ নেই।
+            <div className="p-12 text-center text-xs text-neutral-500 bg-neutral-950/50 rounded-2xl border border-dashed border-white/10">
+              বর্তমানে কোনো পেন্ডিং সাপোর্ট মেসেজ নেই।
             </div>
           ) : (
             <div className="space-y-3">
-              {supportTickets.map((tkt) => (
+              {supportTickets.map((t) => (
                 <div
-                  key={tkt.id}
-                  className="p-4 bg-neutral-950/80 rounded-2xl border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  key={t.id}
+                  className="p-5 bg-neutral-950/80 rounded-2xl border border-white/5 space-y-3"
                 >
-                  <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          tkt.type === 'report'
-                            ? 'bg-red-950 text-red-300'
-                            : 'bg-emerald-950 text-emerald-300'
-                        }`}
-                      >
-                        {tkt.type}
+                      <span className="font-bold text-white text-sm">{t.name}</span>
+                      <span className="text-xs text-neutral-400 font-mono">({t.email})</span>
+                      <span className="px-2 py-0.5 rounded bg-neutral-800 text-[10px] text-neutral-300 uppercase font-mono">
+                        {t.type}
                       </span>
-                      <span className="font-bold text-white">{tkt.name}</span>
-                      <span className="text-neutral-500 font-mono">({tkt.email})</span>
-                      <span className="text-neutral-600">·</span>
-                      <span className="text-neutral-500 font-mono">{tkt.date}</span>
                     </div>
-                    <p className="text-neutral-300">{tkt.message}</p>
-                  </div>
 
-                  <div className="flex items-center gap-2">
                     <button
                       onClick={() => {
-                        updateTicketStatus(tkt.id, tkt.status === 'pending' ? 'resolved' : 'pending');
-                        triggerToast('টিকিটের অবস্থা আপডেট করা হয়েছে!');
+                        updateTicketStatus(
+                          t.id,
+                          t.status === 'pending' ? 'resolved' : 'pending'
+                        );
+                        triggerToast('টিকেটের স্ট্যাটাস আপডেট করা হয়েছে!');
                       }}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
-                        tkt.status === 'resolved'
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer ${
+                        t.status === 'resolved'
                           ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/30'
-                          : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                          : 'bg-amber-950 text-amber-400 border border-amber-500/30'
                       }`}
                     >
-                      {tkt.status === 'resolved' ? 'সমাধানকৃত (Resolved)' : 'Mark Resolved'}
+                      {t.status === 'resolved' ? 'সমাধানকৃত' : 'পেন্ডিং'}
                     </button>
+                  </div>
+
+                  <p className="text-xs text-neutral-300 bg-neutral-900/60 p-3 rounded-xl leading-relaxed">
+                    {t.message}
+                  </p>
+
+                  <div className="text-[11px] text-neutral-500 font-mono flex items-center justify-between">
+                    <span>তারিখ: {t.date}</span>
+                    <span>আইডি: {t.id}</span>
                   </div>
                 </div>
               ))}
@@ -1621,20 +1487,22 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Reset Database Button */}
-      <div className="p-4 bg-neutral-900/30 rounded-2xl border border-white/5 flex items-center justify-between text-xs text-neutral-400">
-        <span>ডেমো ডেটা প্রাথমিক অবস্থায় ফিরিয়ে নিতে চান?</span>
+      {/* Emergency Reset to Defaults */}
+      <div className="pt-6 border-t border-white/10 flex items-center justify-between flex-wrap gap-4 text-xs text-neutral-500">
+        <div className="flex items-center gap-2">
+          <HelpCircle className="w-4 h-4 text-neutral-400" />
+          <span>প্রয়োজনে মূল ফ্যাক্টরি ডাটাতে রিস্টোর করতে নিচের বাটনটি ব্যবহার করুন:</span>
+        </div>
         <button
           onClick={() => {
-            if (confirm('সমস্ত কন্টেন্ট প্রাথমিক ফ্যাক্টরি ডেটায় ফিরিয়ে নেবেন?')) {
+            if (confirm('সতর্কতা: এটি সকল ডেটা ডিফল্ট অবস্থায় রিস্টোর করবে এবং Firestore-এ সিঙ্ক করবে। আপনি কি নিশ্চিত?')) {
               resetToDefaultData();
-              triggerToast('সমস্ত ডেটা ডিফল্ট রিস্টোর করা হয়েছে!');
+              triggerToast('সকল ডাটা সফলভাবে ডিফল্ট অবস্থায় রিস্টোর করা হয়েছে!');
             }
           }}
-          className="px-3.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg flex items-center gap-1.5 cursor-pointer"
+          className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white rounded-xl transition-colors cursor-pointer border border-white/5"
         >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>রিসেট টু ডিফল্ট</span>
+          ফ্যাক্টরি রিসেট (রিস্টোর)
         </button>
       </div>
     </div>

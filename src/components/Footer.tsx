@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { FleearnLogo } from './FleearnLogo';
 import { BrandLogos } from './BrandLogos';
 import {
   Mail,
@@ -69,22 +70,7 @@ export const Footer: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* Col 1: Logo & Tagline (Fully Editable from Admin) */}
           <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              {companyInfo.logoUrl ? (
-                <img
-                  src={companyInfo.logoUrl}
-                  alt={companyInfo.name}
-                  className="w-10 h-10 rounded-xl object-cover border border-emerald-500/40 shadow-lg"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#044541] to-emerald-950 flex items-center justify-center border border-emerald-500/40 shadow-lg">
-                  <span className="text-white font-black text-xl font-['Outfit']">F</span>
-                </div>
-              )}
-              <span className="text-xl font-black text-white font-['Outfit']">
-                {companyInfo.name.split(' ')[0] || 'Fleearn'}
-              </span>
-            </div>
+            <FleearnLogo size="md" showText={true} />
             <p className="text-xs text-neutral-400 leading-relaxed">
               {companyInfo.tagline}
             </p>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { FleearnLogo } from './FleearnLogo';
 import { Lock, ShieldCheck, KeyRound, AlertCircle, X } from 'lucide-react';
 
 export const AdminLoginModal: React.FC = () => {
@@ -31,9 +32,7 @@ export const AdminLoginModal: React.FC = () => {
         {/* Glow Header */}
         <div className="p-6 bg-gradient-to-b from-[#044541]/40 to-transparent border-b border-white/10 flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-[#044541] rounded-2xl text-emerald-400 shadow-lg shadow-emerald-950 border border-emerald-500/20">
-              <ShieldCheck className="w-6 h-6 text-red-400" />
-            </div>
+            <FleearnLogo size="md" />
             <div>
               <h3 className="text-lg font-bold text-white font-['Outfit']">
                 এডমিন অথেনটিকেশন পোর্টাল

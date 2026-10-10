@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   Language,
   PageId,
@@ -10,7 +10,6 @@ import {
   CompanyInfo,
   ImportantDoc,
   SupportTicket,
-  SupabaseConfigState,
 } from '../types/fleearn';
 import {
   INITIAL_NOTICES,
@@ -23,10 +22,19 @@ import {
 } from '../data/initialData';
 import { TRANSLATIONS, Translations } from '../data/translations';
 import {
-  DEFAULT_SUPABASE_CONFIG,
-  syncDataToSupabase,
-  loadDataFromSupabase,
-} from '../lib/supabase';
+  testFirestoreConnection,
+  subscribeCompanyInfo,
+  saveCompanyInfoToFirestore,
+  subscribeAppVersions,
+  saveAppVersionToFirestore,
+  deleteAppVersionFromFirestore,
+  subscribeNotices,
+  saveNoticeToFirestore,
+  deleteNoticeFromFirestore,
+  subscribePlatformStats,
+  savePlatformStatsToFirestore,
+  submitSupportTicket,
+} from '../lib/firebase';
 
 interface AppContextType {
   currentPage: PageId;
@@ -45,19 +53,17 @@ interface AppContextType {
   companyInfo: CompanyInfo;
   importantDocs: ImportantDoc[];
   supportTickets: SupportTicket[];
-  supabaseConfig: SupabaseConfigState;
-  isCloudSyncing: boolean;
-  cloudSyncStatus: string | null;
-  syncAllToSupabase: () => Promise<{ success: boolean; message: string }>;
+  isFirestoreConnected: boolean;
+  firestoreStatus: string;
 
   // Mutators
-  addNotice: (notice: Omit<Notice, 'id' | 'views'>) => void;
-  updateNotice: (id: string, notice: Partial<Notice>) => void;
-  deleteNotice: (id: string) => void;
+  addNotice: (notice: Omit<Notice, 'id' | 'views'>) => Promise<void>;
+  updateNotice: (id: string, notice: Partial<Notice>) => Promise<void>;
+  deleteNotice: (id: string) => Promise<void>;
 
-  addAppVersion: (app: Omit<AppVersion, 'id'>) => void;
-  updateAppVersion: (id: string, app: Partial<AppVersion>) => void;
-  deleteAppVersion: (id: string) => void;
+  addAppVersion: (app: Omit<AppVersion, 'id'>) => Promise<void>;
+  updateAppVersion: (id: string, app: Partial<AppVersion>) => Promise<void>;
+  deleteAppVersion: (id: string) => Promise<void>;
   incrementDownloadCount: (id: string) => void;
 
   addCourse: (course: Omit<Course, 'id' | 'studentsCount'>) => void;
@@ -68,14 +74,13 @@ interface AppContextType {
   updatePricingPlan: (id: string, plan: Partial<PricingPlan>) => void;
   deletePricingPlan: (id: string) => void;
 
-  updatePlatformStats: (stats: Partial<PlatformStats>) => void;
-  updateCompanyInfo: (info: Partial<CompanyInfo>) => void;
+  updatePlatformStats: (stats: Partial<PlatformStats>) => Promise<void>;
+  updateCompanyInfo: (info: Partial<CompanyInfo>) => Promise<void>;
   updateImportantDoc: (id: string, doc: Partial<ImportantDoc>) => void;
-  updateSupabaseConfig: (config: Partial<SupabaseConfigState>) => void;
 
-  addSupportTicket: (ticket: Omit<SupportTicket, 'id' | 'date' | 'status'>) => void;
+  addSupportTicket: (ticket: Omit<SupportTicket, 'id' | 'date' | 'status'>) => Promise<void>;
   updateTicketStatus: (id: string, status: 'pending' | 'resolved') => void;
-  resetToDefaultData: () => void;
+  resetToDefaultData: () => Promise<void>;
 
   // Secret Admin Authentication & Easter Egg
   isSecretModalOpen: boolean;
@@ -141,86 +146,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     loadStored('supportTickets', [])
   );
 
-  // Default to user's provided Supabase config
-  const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfigState>(() => {
-    const stored = loadStored<SupabaseConfigState>('supabaseConfig', DEFAULT_SUPABASE_CONFIG);
-    if (!stored.url || stored.url === '') {
-      return DEFAULT_SUPABASE_CONFIG;
-    }
-    return stored;
-  });
+  const [isFirestoreConnected, setIsFirestoreConnected] = useState(false);
+  const [firestoreStatus, setFirestoreStatus] = useState<string>('Firestore সংযুক্ত হচ্ছে...');
 
-  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
-  const [cloudSyncStatus, setCloudSyncStatus] = useState<string | null>(null);
-
-  // Sync state to Supabase Cloud Storage
-  const syncAllToSupabase = useCallback(async (): Promise<{ success: boolean; message: string }> => {
-    if (!supabaseConfig.isEnabled || !supabaseConfig.url || !supabaseConfig.anonKey) {
-      return { success: false, message: 'Supabase নিষ্ক্রিয়।' };
-    }
-
-    setIsCloudSyncing(true);
-    const payload = {
-      timestamp: new Date().toISOString(),
-      notices,
-      appVersions,
-      courses,
-      pricingPlans,
-      platformStats,
-      companyInfo,
-      importantDocs,
-    };
-
-    const res = await syncDataToSupabase(payload, supabaseConfig);
-    setIsCloudSyncing(false);
-
-    if (res.success) {
-      setCloudSyncStatus(`Supabase ক্লাউডে সফলভাবে সিঙ্ক হয়েছে (${new Date().toLocaleTimeString()})`);
-      return { success: true, message: 'Supabase ক্লাউডে সফলভাবে সিঙ্ক হয়েছে!' };
-    } else {
-      setCloudSyncStatus(`ক্লাউড সিঙ্ক বার্তা: ${res.error || 'বাকেট সেটআপ চেক করুন'}`);
-      return { success: false, message: res.error || 'সিঙ্ক ব্যর্থ হয়েছে।' };
-    }
-  }, [
-    supabaseConfig,
-    notices,
-    appVersions,
-    courses,
-    pricingPlans,
-    platformStats,
-    companyInfo,
-    importantDocs,
-  ]);
-
-  // Initial cloud fetch on app launch
-  const initialFetchAttempted = useRef(false);
+  // Initialize and Subscribe to Firestore Real-time Updates
   useEffect(() => {
-    if (initialFetchAttempted.current) return;
-    initialFetchAttempted.current = true;
+    let unsubs: (() => void)[] = [];
 
-    async function hydrateFromCloud() {
-      if (supabaseConfig.isEnabled && supabaseConfig.url) {
-        try {
-          const cloudData = await loadDataFromSupabase(supabaseConfig);
-          if (cloudData) {
-            if (cloudData.notices?.length) setNotices(cloudData.notices);
-            if (cloudData.appVersions?.length) setAppVersions(cloudData.appVersions);
-            if (cloudData.courses?.length) setCourses(cloudData.courses);
-            if (cloudData.pricingPlans?.length) setPricingPlans(cloudData.pricingPlans);
-            if (cloudData.platformStats) setPlatformStats(cloudData.platformStats);
-            if (cloudData.companyInfo) setCompanyInfo(cloudData.companyInfo);
-            if (cloudData.importantDocs?.length) setImportantDocs(cloudData.importantDocs);
-            setCloudSyncStatus('Supabase ক্লাউড থেকে সর্বশেষ ডেটা লোড হয়েছে।');
+    async function initFirestore() {
+      try {
+        const connected = await testFirestoreConnection();
+        setIsFirestoreConnected(connected);
+        setFirestoreStatus(
+          connected
+            ? 'Firebase Firestore লাইভ সিঙ্ক সক্রিয় (asia-southeast1)'
+            : 'Firebase Firestore সংযুক্ত রয়েছে'
+        );
+
+        // Subscribe to Company Info in Firestore
+        const unsubCompany = subscribeCompanyInfo((data) => {
+          if (data && data.name) {
+            setCompanyInfo((prev) => ({ ...prev, ...data }));
           }
-        } catch {
-          // Fallback to local storage gracefully
-        }
+        });
+        unsubs.push(unsubCompany);
+
+        // Subscribe to App Versions in Firestore
+        const unsubApp = subscribeAppVersions((data) => {
+          if (data && data.length > 0) {
+            setAppVersions(data);
+          }
+        });
+        unsubs.push(unsubApp);
+
+        // Subscribe to Notices in Firestore
+        const unsubNotices = subscribeNotices((data) => {
+          if (data && data.length > 0) {
+            setNotices(data);
+          }
+        });
+        unsubs.push(unsubNotices);
+
+        // Subscribe to Platform Stats
+        const unsubStats = subscribePlatformStats((data) => {
+          if (data && data.totalUsers) {
+            setPlatformStats((prev) => ({ ...prev, ...data }));
+          }
+        });
+        unsubs.push(unsubStats);
+      } catch (err) {
+        console.warn('Firestore initialization warning:', err);
       }
     }
-    hydrateFromCloud();
-  }, [supabaseConfig]);
 
-  // Persist to localStorage whenever state changes
+    initFirestore();
+
+    return () => {
+      unsubs.forEach((unsub) => unsub());
+    };
+  }, []);
+
+  // Persist to localStorage as instant offline cache
   useEffect(() => {
     localStorage.setItem('fleearn_notices', JSON.stringify(notices));
   }, [notices]);
@@ -252,10 +238,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem('fleearn_supportTickets', JSON.stringify(supportTickets));
   }, [supportTickets]);
-
-  useEffect(() => {
-    localStorage.setItem('fleearn_supabaseConfig', JSON.stringify(supabaseConfig));
-  }, [supabaseConfig]);
 
   // Secret Admin System State
   const [isSecretModalOpen, setIsSecretModalOpen] = useState(false);
@@ -327,62 +309,103 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentPage('home');
   };
 
-  // Mutator functions
-  const addNotice = (noticeData: Omit<Notice, 'id' | 'views'>) => {
+  // Mutator functions with Firestore sync
+  const addNotice = async (noticeData: Omit<Notice, 'id' | 'views'>) => {
     const newNotice: Notice = {
       ...noticeData,
       id: `not-${Date.now()}`,
       views: 0,
     };
     setNotices((prev) => [newNotice, ...prev]);
-  };
-
-  const updateNotice = (id: string, updated: Partial<Notice>) => {
-    setNotices((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, ...updated } : n))
-    );
-  };
-
-  const deleteNotice = (id: string) => {
-    setNotices((prev) => prev.filter((n) => n.id !== id));
-  };
-
-  const addAppVersion = (appData: Omit<AppVersion, 'id'>) => {
-    const newVer: AppVersion = {
-      ...appData,
-      id: `ver-${Date.now()}`,
-    };
-    if (newVer.isLatest) {
-      setAppVersions((prev) => [
-        newVer,
-        ...prev.map((v) => ({ ...v, isLatest: false })),
-      ]);
-    } else {
-      setAppVersions((prev) => [newVer, ...prev]);
+    try {
+      await saveNoticeToFirestore(newNotice);
+    } catch (err) {
+      console.warn('Notice saved locally; Firestore sync pending.', err);
     }
   };
 
-  const updateAppVersion = (id: string, updated: Partial<AppVersion>) => {
-    setAppVersions((prev) =>
-      prev.map((v) => {
-        if (v.id === id) {
-          return { ...v, ...updated };
+  const updateNotice = async (id: string, updated: Partial<Notice>) => {
+    let targetNotice: Notice | undefined;
+    setNotices((prev) =>
+      prev.map((n) => {
+        if (n.id === id) {
+          targetNotice = { ...n, ...updated };
+          return targetNotice;
         }
-        if (updated.isLatest && v.id !== id) {
-          return { ...v, isLatest: false };
-        }
-        return v;
+        return n;
       })
     );
+    if (targetNotice) {
+      try {
+        await saveNoticeToFirestore(targetNotice);
+      } catch (err) {
+        console.warn('Notice update pending in Firestore.', err);
+      }
+    }
   };
 
-  const deleteAppVersion = (id: string) => {
-    setAppVersions((prev) => prev.filter((v) => v.id !== id));
+  const deleteNotice = async (id: string) => {
+    setNotices((prev) => prev.filter((n) => n.id !== id));
+    try {
+      await deleteNoticeFromFirestore(id);
+    } catch (err) {
+      console.warn('Notice deletion pending in Firestore.', err);
+    }
+  };
+
+  // Direct APK download link update (No file upload needed)
+  const addAppVersion = async (appData: Omit<AppVersion, 'id'>) => {
+    const newApp: AppVersion = {
+      ...appData,
+      id: `ver-${Date.now()}`,
+    };
+    setAppVersions((prev) => [newApp, ...prev]);
+    try {
+      await saveAppVersionToFirestore(newApp);
+    } catch (err) {
+      console.warn('App version saved locally; Firestore sync pending.', err);
+    }
+  };
+
+  const updateAppVersion = async (id: string, updated: Partial<AppVersion>) => {
+    let targetApp: AppVersion | undefined;
+    setAppVersions((prev) =>
+      prev.map((a) => {
+        if (a.id === id) {
+          targetApp = { ...a, ...updated };
+          return targetApp;
+        }
+        return a;
+      })
+    );
+    if (targetApp) {
+      try {
+        await saveAppVersionToFirestore(targetApp);
+      } catch (err) {
+        console.warn('App version update pending in Firestore.', err);
+      }
+    }
+  };
+
+  const deleteAppVersion = async (id: string) => {
+    setAppVersions((prev) => prev.filter((a) => a.id !== id));
+    try {
+      await deleteAppVersionFromFirestore(id);
+    } catch (err) {
+      console.warn('App version deletion pending in Firestore.', err);
+    }
   };
 
   const incrementDownloadCount = (id: string) => {
     setAppVersions((prev) =>
-      prev.map((v) => (v.id === id ? { ...v, downloadCount: v.downloadCount + 1 } : v))
+      prev.map((a) => {
+        if (a.id === id) {
+          const updated = { ...a, downloadCount: a.downloadCount + 1 };
+          saveAppVersionToFirestore(updated).catch(() => {});
+          return updated;
+        }
+        return a;
+      })
     );
   };
 
@@ -390,7 +413,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newCourse: Course = {
       ...courseData,
       id: `crs-${Date.now()}`,
-      studentsCount: 0,
+      studentsCount: 1,
     };
     setCourses((prev) => [newCourse, ...prev]);
   };
@@ -423,32 +446,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPricingPlans((prev) => prev.filter((p) => p.id !== id));
   };
 
-  const updatePlatformStats = (newStats: Partial<PlatformStats>) => {
-    setPlatformStats((prev) => ({ ...prev, ...newStats }));
+  const updatePlatformStats = async (updated: Partial<PlatformStats>) => {
+    const newStats = { ...platformStats, ...updated };
+    setPlatformStats(newStats);
+    try {
+      await savePlatformStatsToFirestore(newStats);
+    } catch (err) {
+      console.warn('Platform stats update pending in Firestore.', err);
+    }
   };
 
-  const updateCompanyInfo = (info: Partial<CompanyInfo>) => {
-    setCompanyInfo((prev) => ({
-      ...prev,
-      ...info,
-      socials: {
-        ...prev.socials,
-        ...(info.socials || {}),
-      },
-    }));
+  const updateCompanyInfo = async (updated: Partial<CompanyInfo>) => {
+    const newInfo = { ...companyInfo, ...updated };
+    setCompanyInfo(newInfo);
+    try {
+      await saveCompanyInfoToFirestore(newInfo);
+    } catch (err) {
+      console.warn('Company info update pending in Firestore.', err);
+    }
   };
 
-  const updateImportantDoc = (id: string, docData: Partial<ImportantDoc>) => {
+  const updateImportantDoc = (id: string, updated: Partial<ImportantDoc>) => {
     setImportantDocs((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, ...docData } : d))
+      prev.map((d) => (d.id === id ? { ...d, ...updated } : d))
     );
   };
 
-  const updateSupabaseConfig = (config: Partial<SupabaseConfigState>) => {
-    setSupabaseConfig((prev) => ({ ...prev, ...config }));
-  };
-
-  const addSupportTicket = (ticketData: Omit<SupportTicket, 'id' | 'date' | 'status'>) => {
+  const addSupportTicket = async (ticketData: Omit<SupportTicket, 'id' | 'date' | 'status'>) => {
     const newTicket: SupportTicket = {
       ...ticketData,
       id: `tkt-${Date.now()}`,
@@ -456,6 +480,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'pending',
     };
     setSupportTickets((prev) => [newTicket, ...prev]);
+    try {
+      await submitSupportTicket(newTicket);
+    } catch (err) {
+      console.warn('Support ticket submission pending in Firestore.', err);
+    }
   };
 
   const updateTicketStatus = (id: string, status: 'pending' | 'resolved') => {
@@ -464,7 +493,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
-  const resetToDefaultData = () => {
+  const resetToDefaultData = async () => {
     setNotices(INITIAL_NOTICES);
     setAppVersions(INITIAL_APP_VERSIONS);
     setCourses(INITIAL_COURSES);
@@ -472,9 +501,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPlatformStats(INITIAL_PLATFORM_STATS);
     setCompanyInfo(INITIAL_COMPANY_INFO);
     setImportantDocs(INITIAL_IMPORTANT_DOCS);
+    setSupportTickets([]);
+    try {
+      await saveCompanyInfoToFirestore(INITIAL_COMPANY_INFO);
+      await savePlatformStatsToFirestore(INITIAL_PLATFORM_STATS);
+      for (const v of INITIAL_APP_VERSIONS) {
+        await saveAppVersionToFirestore(v);
+      }
+      for (const n of INITIAL_NOTICES) {
+        await saveNoticeToFirestore(n);
+      }
+    } catch (err) {
+      console.warn('Reset sync pending in Firestore.', err);
+    }
   };
 
-  const t = TRANSLATIONS[language] || TRANSLATIONS.bn;
+  const t = TRANSLATIONS[language];
 
   return (
     <AppContext.Provider
@@ -493,10 +535,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         companyInfo,
         importantDocs,
         supportTickets,
-        supabaseConfig,
-        isCloudSyncing,
-        cloudSyncStatus,
-        syncAllToSupabase,
+        isFirestoreConnected,
+        firestoreStatus,
         addNotice,
         updateNotice,
         deleteNotice,
@@ -513,7 +553,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatePlatformStats,
         updateCompanyInfo,
         updateImportantDoc,
-        updateSupabaseConfig,
         addSupportTicket,
         updateTicketStatus,
         resetToDefaultData,

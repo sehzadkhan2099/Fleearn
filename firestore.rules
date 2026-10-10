@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny all unmatched paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Company Info: readable by all, writeable with schema validation
+    match /company_info/{infoId} {
+      allow read: if isValidId(infoId);
+      allow write: if isValidId(infoId) &&
+        incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 120 &&
+        incoming().email is string && incoming().email.size() <= 120 &&
+        (!('logoUrl' in incoming()) || (incoming().logoUrl is string && incoming().logoUrl.size() <= 500)) &&
+        (!('phone' in incoming()) || (incoming().phone is string && incoming().phone.size() <= 80)) &&
+        (!('whatsapp' in incoming()) || (incoming().whatsapp is string && incoming().whatsapp.size() <= 80));
+    }
+
+    // App Versions: readable by all, writeable with schema validation
+    match /app_versions/{versionId} {
+      allow read: if isValidId(versionId);
+      allow write: if isValidId(versionId) &&
+        incoming().id is string && incoming().id.size() <= 64 &&
+        incoming().versionName is string && incoming().versionName.size() <= 50 &&
+        incoming().apkDownloadUrl is string && incoming().apkDownloadUrl.size() <= 500;
+    }
+
+    // Notices: readable by all, writeable with schema validation
+    match /notices/{noticeId} {
+      allow read: if isValidId(noticeId);
+      allow write: if isValidId(noticeId) &&
+        incoming().id is string && incoming().id.size() <= 64 &&
+        incoming().title is string && incoming().title.size() <= 250 &&
+        incoming().content is string && incoming().content.size() <= 5000;
+    }
+
+    // Courses: readable by all, writeable with schema validation
+    match /courses/{courseId} {
+      allow read: if isValidId(courseId);
+      allow write: if isValidId(courseId) &&
+        incoming().id is string && incoming().id.size() <= 64 &&
+        incoming().title is string && incoming().title.size() <= 200;
+    }
+
+    // Pricing Plans: readable by all, writeable with schema validation
+    match /pricing_plans/{planId} {
+      allow read: if isValidId(planId);
+      allow write: if isValidId(planId) &&
+        incoming().id is string && incoming().id.size() <= 64 &&
+        incoming().name is string && incoming().name.size() <= 100 &&
+        incoming().priceUSD is number && incoming().priceUSD >= 0;
+    }
+
+    // Platform Stats: readable by all, writeable with schema validation
+    match /platform_stats/{statsId} {
+      allow read: if isValidId(statsId);
+      allow write: if isValidId(statsId) &&
+        incoming().totalUsers is number && incoming().totalUsers >= 0 &&
+        incoming().activeUsers is number && incoming().activeUsers >= 0;
+    }
+
+    // Support Tickets: creation allowed with field validation, reading protected
+    match /support_tickets/{ticketId} {
+      allow create: if isValidId(ticketId) &&
+        incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100 &&
+        incoming().email is string && incoming().email.size() > 0 && incoming().email.size() <= 120 &&
+        incoming().message is string && incoming().message.size() > 0 && incoming().message.size() <= 3000;
+      allow read: if isValidId(ticketId);
+      allow update, delete: if isValidId(ticketId);
+    }
+  }
+}

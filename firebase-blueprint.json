@@ -1,0 +1,156 @@
+{
+  "entities": {
+    "CompanyInfo": {
+      "title": "CompanyInfo",
+      "description": "Public company profile, contacts, addresses, logo and social links for Fleearn",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "tagline": { "type": "string", "maxLength": 200 },
+        "email": { "type": "string", "maxLength": 120 },
+        "webAddress": { "type": "string", "maxLength": 150 },
+        "address": { "type": "string", "maxLength": 300 },
+        "phone": { "type": "string", "maxLength": 60 },
+        "whatsapp": { "type": "string", "maxLength": 60 },
+        "logoUrl": { "type": "string", "maxLength": 500 },
+        "aboutParagraphBn": { "type": "string", "maxLength": 3000 },
+        "aboutParagraphEn": { "type": "string", "maxLength": 3000 }
+      },
+      "required": ["name", "email"]
+    },
+    "AppVersion": {
+      "title": "AppVersion",
+      "description": "Android APK releases and direct download links for Fleearn mobile application",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "versionName": { "type": "string", "maxLength": 50 },
+        "versionCode": { "type": "number" },
+        "releaseDate": { "type": "string", "maxLength": 30 },
+        "size": { "type": "string", "maxLength": 30 },
+        "isLatest": { "type": "boolean" },
+        "downloadCount": { "type": "number" },
+        "minAndroid": { "type": "string", "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "apkDownloadUrl": { "type": "string", "maxLength": 500 },
+        "apkFileName": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["published", "draft"] }
+      },
+      "required": ["id", "versionName", "apkDownloadUrl"]
+    },
+    "Notice": {
+      "title": "Notice",
+      "description": "Official company announcements and updates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 250 },
+        "titleEn": { "type": "string", "maxLength": 250 },
+        "content": { "type": "string", "maxLength": 5000 },
+        "contentEn": { "type": "string", "maxLength": 5000 },
+        "category": { "type": "string", "maxLength": 50 },
+        "date": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "maxLength": 30 },
+        "priority": { "type": "string", "maxLength": 30 },
+        "views": { "type": "number" }
+      },
+      "required": ["id", "title", "content"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Educational skill development courses",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 200 },
+        "titleEn": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 80 },
+        "instructor": { "type": "string", "maxLength": 100 },
+        "duration": { "type": "string", "maxLength": 50 },
+        "lessonsCount": { "type": "number" },
+        "priceUSD": { "type": "number" },
+        "priceFSD": { "type": "number" },
+        "rating": { "type": "number" },
+        "studentsCount": { "type": "number" },
+        "thumbnail": { "type": "string", "maxLength": 500 },
+        "level": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "title"]
+    },
+    "PricingPlan": {
+      "title": "PricingPlan",
+      "description": "Membership booster packages",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 100 },
+        "nameEn": { "type": "string", "maxLength": 100 },
+        "priceUSD": { "type": "number" },
+        "fsdAmount": { "type": "number" },
+        "validity": { "type": "string", "maxLength": 60 },
+        "validityEn": { "type": "string", "maxLength": 60 },
+        "badge": { "type": "string", "maxLength": 60 },
+        "popular": { "type": "boolean" }
+      },
+      "required": ["id", "name", "priceUSD"]
+    },
+    "PlatformStats": {
+      "title": "PlatformStats",
+      "description": "Overall operational statistics for Fleearn",
+      "type": "object",
+      "properties": {
+        "totalUsers": { "type": "number" },
+        "activeUsers": { "type": "number" },
+        "bannedAccounts": { "type": "number" },
+        "totalTransactionsUSD": { "type": "number" },
+        "totalTransactionsFSD": { "type": "number" }
+      },
+      "required": ["totalUsers", "activeUsers"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Contact form submissions and complaints",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 120 },
+        "subject": { "type": "string", "maxLength": 200 },
+        "message": { "type": "string", "maxLength": 3000 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "status": { "type": "string", "maxLength": 30 }
+      },
+      "required": ["name", "email", "message"]
+    }
+  },
+  "firestore": {
+    "/company_info/{infoId}": {
+      "schema": "CompanyInfo",
+      "description": "Company profile, branding, contacts, and custom logo link"
+    },
+    "/app_versions/{versionId}": {
+      "schema": "AppVersion",
+      "description": "Mobile APK version release details and direct download links"
+    },
+    "/notices/{noticeId}": {
+      "schema": "Notice",
+      "description": "Platform announcement notices"
+    },
+    "/courses/{courseId}": {
+      "schema": "Course",
+      "description": "Learning course catalog"
+    },
+    "/pricing_plans/{planId}": {
+      "schema": "PricingPlan",
+      "description": "Booster and membership pricing tiers"
+    },
+    "/platform_stats/{statsId}": {
+      "schema": "PlatformStats",
+      "description": "Aggregated platform statistics"
+    },
+    "/support_tickets/{ticketId}": {
+      "schema": "SupportTicket",
+      "description": "User queries and contact messages"
+    }
+  }
+}

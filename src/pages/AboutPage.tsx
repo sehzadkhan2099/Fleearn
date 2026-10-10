@@ -1,5 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
+import { FleearnLogo } from '../components/FleearnLogo';
 import { Info, ShieldCheck, Globe, Users, Award } from 'lucide-react';
 
 export const AboutPage: React.FC = () => {
@@ -24,17 +25,7 @@ export const AboutPage: React.FC = () => {
       {/* Main Admin Editable Paragraph Box */}
       <div className="p-6 sm:p-10 md:p-12 bg-neutral-900/60 rounded-3xl border border-[#044541] shadow-2xl space-y-6">
         <div className="flex items-center gap-3 border-b border-white/10 pb-4">
-          {companyInfo.logoUrl ? (
-            <img
-              src={companyInfo.logoUrl}
-              alt={companyInfo.name}
-              className="w-12 h-12 rounded-2xl object-cover border border-emerald-500/30"
-            />
-          ) : (
-            <div className="w-12 h-12 rounded-xl bg-[#044541] flex items-center justify-center text-white font-black text-xl shadow-lg border border-emerald-500/30">
-              F
-            </div>
-          )}
+          <FleearnLogo size="md" />
           <div>
             <h2 className="text-lg font-bold text-white font-['Outfit']">
               {companyInfo.name}

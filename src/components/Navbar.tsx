@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Language, PageId } from '../types/fleearn';
+import { FleearnLogo } from './FleearnLogo';
 import {
   Globe,
   Menu,
@@ -66,32 +67,9 @@ export const Navbar: React.FC = () => {
           {/* Brand Logo & Wordmark (Fully Editable from Admin) */}
           <div
             onClick={() => handleNavClick('home')}
-            className="flex items-center gap-2.5 cursor-pointer shrink-0 group select-none"
+            className="cursor-pointer shrink-0 group select-none"
           >
-            {companyInfo.logoUrl ? (
-              <img
-                src={companyInfo.logoUrl}
-                alt={companyInfo.name}
-                className="w-10 h-10 rounded-xl object-cover border border-emerald-500/40 shadow-lg group-hover:scale-105 transition-transform"
-              />
-            ) : (
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#044541] to-emerald-950 flex items-center justify-center border border-emerald-500/40 shadow-lg shadow-emerald-950/40 group-hover:scale-105 transition-transform">
-                <span className="text-white font-black text-xl font-['Outfit'] tracking-wider">
-                  F
-                </span>
-              </div>
-            )}
-            <div className="flex flex-col">
-              <span className="text-lg sm:text-xl font-black tracking-tight text-white font-['Outfit'] flex items-center gap-1">
-                <span>{companyInfo.name.split(' ')[0] || 'Fleearn'}</span>
-                <span className="text-[10px] px-1.5 py-0.2 bg-red-600/90 text-white rounded font-mono font-normal">
-                  PRO
-                </span>
-              </span>
-              <span className="text-[10px] text-neutral-400 -mt-1 font-medium tracking-wide">
-                Earn your way
-              </span>
-            </div>
+            <FleearnLogo size="md" showText={true} />
           </div>
 
           {/* Desktop Navigation Links */}

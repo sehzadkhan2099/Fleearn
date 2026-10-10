@@ -97,6 +97,7 @@ export const INITIAL_APP_VERSIONS: AppVersion[] = [
       'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=600&q=80',
     ],
     apkFileName: 'fleearn-v3.4.2-official-release.apk',
+    apkDownloadUrl: 'https://github.com/fleearn-ecosystem/app/releases/download/v3.4.2/fleearn-v3.4.2-official-release.apk',
     status: 'published',
   },
   {
@@ -121,6 +122,7 @@ export const INITIAL_APP_VERSIONS: AppVersion[] = [
       'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=600&q=80',
     ],
     apkFileName: 'fleearn-v3.3.0-stable.apk',
+    apkDownloadUrl: 'https://github.com/fleearn-ecosystem/app/releases/download/v3.3.0/fleearn-v3.3.0-stable.apk',
     status: 'published',
   },
   {
@@ -144,6 +146,7 @@ export const INITIAL_APP_VERSIONS: AppVersion[] = [
       'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=600&q=80',
     ],
     apkFileName: 'fleearn-v3.2.1-legacy.apk',
+    apkDownloadUrl: 'https://github.com/fleearn-ecosystem/app/releases/download/v3.2.1/fleearn-v3.2.1-legacy.apk',
     status: 'published',
   },
 ];

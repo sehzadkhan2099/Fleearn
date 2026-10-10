@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { BrandLogos } from '../components/BrandLogos';
+import { FleearnLogo } from '../components/FleearnLogo';
 import {
   Download,
   ArrowRight,
@@ -48,28 +49,23 @@ export const HomePage: React.FC = () => {
   const [contactSuccess, setContactSuccess] = useState(false);
 
   // Download APK trigger
-  const handleDownloadApk = (appId: string, fileName: string) => {
+  const handleDownloadApk = (appId: string, fileName?: string) => {
     incrementDownloadCount(appId);
 
     const appObj = appVersions.find((v) => v.id === appId);
-    if (appObj?.apkDownloadUrl && appObj.apkDownloadUrl.startsWith('http')) {
+    if (appObj?.apkDownloadUrl) {
       const link = document.createElement('a');
       link.href = appObj.apkDownloadUrl;
-      link.download = fileName || 'fleearn-app.apk';
+      link.download = fileName || appObj.apkFileName || 'fleearn-app.apk';
       link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
       return;
     }
 
-    if (appObj?.localFileBlob && appObj.localFileBlob.startsWith('blob:')) {
-      const link = document.createElement('a');
-      link.href = appObj.localFileBlob;
-      link.download = fileName || 'fleearn-app.apk';
-      link.click();
-      return;
-    }
-
-    // Default verified build blob fallback
+    // Fallback verified production signature
     const blob = new Blob(
       [
         `Fleearn Official Mobile App Build ${appObj?.versionName || 'v3.5.0'}\nPackage: com.fleearn.official.earning\nSignature: Verified Production APK\nDownloaded on: ${new Date().toISOString()}`,
@@ -197,17 +193,7 @@ export const HomePage: React.FC = () => {
             <div className="relative p-6 bg-gradient-to-br from-neutral-900/90 to-neutral-950/90 border border-[#044541] rounded-3xl shadow-2xl shadow-emerald-950/40 space-y-6">
               <div className="flex items-center justify-between border-b border-white/10 pb-4">
                 <div className="flex items-center gap-3">
-                  {companyInfo.logoUrl ? (
-                    <img
-                      src={companyInfo.logoUrl}
-                      alt={companyInfo.name}
-                      className="w-12 h-12 rounded-2xl object-cover border border-emerald-500/30"
-                    />
-                  ) : (
-                    <div className="w-12 h-12 rounded-2xl bg-[#044541] flex items-center justify-center text-white font-bold text-xl shadow-lg border border-emerald-500/30">
-                      F
-                    </div>
-                  )}
+                  <FleearnLogo size="md" />
                   <div>
                     <h3 className="font-bold text-white text-base font-['Outfit']">
                       Fleearn Client
