@@ -26,7 +26,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import { AppVersion, Notice, Course, PricingPlan } from '../types/fleearn';
-import { testSupabaseConnection, uploadApkToSupabase } from '../lib/supabase';
+import { testSupabaseConnection, uploadApkToSupabase, uploadImageToSupabase } from '../lib/supabase';
 
 type AdminTab =
   | 'stats'
@@ -67,6 +67,9 @@ export const AdminDashboard: React.FC = () => {
     resetToDefaultData,
     supabaseConfig,
     updateSupabaseConfig,
+    syncAllToSupabase,
+    isCloudSyncing,
+    cloudSyncStatus,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<AdminTab>('stats');
@@ -95,6 +98,9 @@ export const AdminDashboard: React.FC = () => {
       totalTransactionsFSD: Number(statsForm.totalTransactionsUSD),
     });
     triggerToast('পরিসংখ্যান সফলভাবে আপডেট করা হয়েছে!');
+    if (supabaseConfig.isEnabled) {
+      syncAllToSupabase();
+    }
   };
 
   // 2. Add APK Form State with REAL File Picker
@@ -180,6 +186,10 @@ export const AdminDashboard: React.FC = () => {
     setSelectedApkFile(null);
     setShowAddAppModal(false);
     triggerToast('নতুন APK সফলভাবে যুক্ত করা হয়েছে!');
+
+    if (supabaseConfig.isEnabled) {
+      syncAllToSupabase();
+    }
   };
 
   // 3. Add Notice Form State
@@ -215,15 +225,29 @@ export const AdminDashboard: React.FC = () => {
       priority: 'normal',
     });
     triggerToast('নতুন নোটিশ সফলভাবে প্রকাশ করা হয়েছে!');
+
+    if (supabaseConfig.isEnabled) {
+      syncAllToSupabase();
+    }
   };
 
   // 4. Company Info Form State with Logo Upload
   const [companyForm, setCompanyForm] = useState({ ...companyInfo });
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleLogoFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (supabaseConfig.isEnabled && supabaseConfig.url && supabaseConfig.anonKey) {
+      triggerToast('Supabase স্টোরেজে লোগো আপলোড করা হচ্ছে...');
+      const uploadRes = await uploadImageToSupabase(file, supabaseConfig);
+      if (uploadRes.success) {
+        setCompanyForm((prev) => ({ ...prev, logoUrl: uploadRes.url }));
+        triggerToast('লোগো ক্লাউডে সফলভাবে আপলোড হয়েছে!');
+        return;
+      }
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -235,10 +259,13 @@ export const AdminDashboard: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleCompanySave = (e: React.FormEvent) => {
+  const handleCompanySave = async (e: React.FormEvent) => {
     e.preventDefault();
     updateCompanyInfo(companyForm);
     triggerToast('কোম্পানির যাবতীয় তথ্য ও লোগো আপডেট করা হয়েছে!');
+    if (supabaseConfig.isEnabled) {
+      syncAllToSupabase();
+    }
   };
 
   // 5. Pricing Plan State
@@ -322,21 +349,34 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            onClick={async () => {
+              const res = await syncAllToSupabase();
+              triggerToast(res.message);
+            }}
+            disabled={isCloudSyncing}
+            className="px-3.5 py-2 bg-[#044541] hover:bg-[#065b56] border border-emerald-500/40 text-emerald-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
+            title="সব ডেটা ক্লাউডে সিঙ্ক করুন"
+          >
+            <Cloud className={`w-3.5 h-3.5 ${isCloudSyncing ? 'animate-bounce text-amber-400' : 'text-emerald-300'}`} />
+            <span>{isCloudSyncing ? 'সিঙ্ক হচ্ছে...' : 'Supabase সিঙ্ক'}</span>
+          </button>
+
           <button
             onClick={() => {
               setCurrentPage('home');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3.5 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <Eye className="w-3.5 h-3.5 text-emerald-400" />
-            <span>মূল ওয়েবসাইট দেখুন</span>
+            <span>মূল ওয়েবসাইট</span>
           </button>
 
           <button
             onClick={logoutAdmin}
-            className="px-4 py-2 bg-red-950 hover:bg-red-900 text-red-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 border border-red-500/30 transition-colors cursor-pointer"
+            className="px-3.5 py-2 bg-red-950 hover:bg-red-900 text-red-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 border border-red-500/30 transition-colors cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>লগআউট</span>
@@ -1076,7 +1116,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
             )}
 
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-3 pt-2 flex-wrap">
               <button
                 type="submit"
                 className="px-6 py-2.5 bg-[#044541] hover:bg-[#065b56] text-white font-bold rounded-xl shadow-lg cursor-pointer"
@@ -1099,7 +1139,27 @@ export const AdminDashboard: React.FC = () => {
                   <span>কানেকশন টেস্ট করুন</span>
                 )}
               </button>
+
+              <button
+                type="button"
+                disabled={isCloudSyncing}
+                onClick={async () => {
+                  const res = await syncAllToSupabase();
+                  triggerToast(res.message);
+                }}
+                className="px-5 py-2.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 font-semibold rounded-xl cursor-pointer flex items-center gap-1.5"
+              >
+                <Cloud className={`w-3.5 h-3.5 ${isCloudSyncing ? 'animate-bounce text-amber-400' : 'text-emerald-300'}`} />
+                <span>{isCloudSyncing ? 'সিঙ্ক হচ্ছে...' : 'এখনই ক্লাউডে সব ডেটা সিঙ্ক করুন'}</span>
+              </button>
             </div>
+
+            {cloudSyncStatus && (
+              <div className="p-3 bg-neutral-950 rounded-xl border border-white/5 text-[11px] text-neutral-400 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                <span>{cloudSyncStatus}</span>
+              </div>
+            )}
           </form>
         </div>
       )}

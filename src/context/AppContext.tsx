@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
   Language,
   PageId,
@@ -22,7 +22,11 @@ import {
   INITIAL_IMPORTANT_DOCS,
 } from '../data/initialData';
 import { TRANSLATIONS, Translations } from '../data/translations';
-import { DEFAULT_SUPABASE_CONFIG } from '../lib/supabase';
+import {
+  DEFAULT_SUPABASE_CONFIG,
+  syncDataToSupabase,
+  loadDataFromSupabase,
+} from '../lib/supabase';
 
 interface AppContextType {
   currentPage: PageId;
@@ -42,6 +46,9 @@ interface AppContextType {
   importantDocs: ImportantDoc[];
   supportTickets: SupportTicket[];
   supabaseConfig: SupabaseConfigState;
+  isCloudSyncing: boolean;
+  cloudSyncStatus: string | null;
+  syncAllToSupabase: () => Promise<{ success: boolean; message: string }>;
 
   // Mutators
   addNotice: (notice: Omit<Notice, 'id' | 'views'>) => void;
@@ -90,7 +97,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<PageId>('home');
   const [language, setLanguage] = useState<Language>('bn');
-  // Pure dark mode locked: light mode deleted
+  // Pure dark mode locked
   const isDarkMode = true;
 
   // Always ensure dark class on documentElement
@@ -133,9 +140,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>(() =>
     loadStored('supportTickets', [])
   );
-  const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfigState>(() =>
-    loadStored('supabaseConfig', DEFAULT_SUPABASE_CONFIG)
-  );
+
+  // Default to user's provided Supabase config
+  const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfigState>(() => {
+    const stored = loadStored<SupabaseConfigState>('supabaseConfig', DEFAULT_SUPABASE_CONFIG);
+    if (!stored.url || stored.url === '') {
+      return DEFAULT_SUPABASE_CONFIG;
+    }
+    return stored;
+  });
+
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<string | null>(null);
+
+  // Sync state to Supabase Cloud Storage
+  const syncAllToSupabase = useCallback(async (): Promise<{ success: boolean; message: string }> => {
+    if (!supabaseConfig.isEnabled || !supabaseConfig.url || !supabaseConfig.anonKey) {
+      return { success: false, message: 'Supabase নিষ্ক্রিয়।' };
+    }
+
+    setIsCloudSyncing(true);
+    const payload = {
+      timestamp: new Date().toISOString(),
+      notices,
+      appVersions,
+      courses,
+      pricingPlans,
+      platformStats,
+      companyInfo,
+      importantDocs,
+    };
+
+    const res = await syncDataToSupabase(payload, supabaseConfig);
+    setIsCloudSyncing(false);
+
+    if (res.success) {
+      setCloudSyncStatus(`Supabase ক্লাউডে সফলভাবে সিঙ্ক হয়েছে (${new Date().toLocaleTimeString()})`);
+      return { success: true, message: 'Supabase ক্লাউডে সফলভাবে সিঙ্ক হয়েছে!' };
+    } else {
+      setCloudSyncStatus(`ক্লাউড সিঙ্ক বার্তা: ${res.error || 'বাকেট সেটআপ চেক করুন'}`);
+      return { success: false, message: res.error || 'সিঙ্ক ব্যর্থ হয়েছে।' };
+    }
+  }, [
+    supabaseConfig,
+    notices,
+    appVersions,
+    courses,
+    pricingPlans,
+    platformStats,
+    companyInfo,
+    importantDocs,
+  ]);
+
+  // Initial cloud fetch on app launch
+  const initialFetchAttempted = useRef(false);
+  useEffect(() => {
+    if (initialFetchAttempted.current) return;
+    initialFetchAttempted.current = true;
+
+    async function hydrateFromCloud() {
+      if (supabaseConfig.isEnabled && supabaseConfig.url) {
+        try {
+          const cloudData = await loadDataFromSupabase(supabaseConfig);
+          if (cloudData) {
+            if (cloudData.notices?.length) setNotices(cloudData.notices);
+            if (cloudData.appVersions?.length) setAppVersions(cloudData.appVersions);
+            if (cloudData.courses?.length) setCourses(cloudData.courses);
+            if (cloudData.pricingPlans?.length) setPricingPlans(cloudData.pricingPlans);
+            if (cloudData.platformStats) setPlatformStats(cloudData.platformStats);
+            if (cloudData.companyInfo) setCompanyInfo(cloudData.companyInfo);
+            if (cloudData.importantDocs?.length) setImportantDocs(cloudData.importantDocs);
+            setCloudSyncStatus('Supabase ক্লাউড থেকে সর্বশেষ ডেটা লোড হয়েছে।');
+          }
+        } catch {
+          // Fallback to local storage gracefully
+        }
+      }
+    }
+    hydrateFromCloud();
+  }, [supabaseConfig]);
 
   // Persist to localStorage whenever state changes
   useEffect(() => {
@@ -208,7 +291,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     if (optionNumber === 40) {
-      // Correct secret option #40 (মঙ্গল গ্রহ / Red Planet Mars)!
       openAdminLoginModal();
       return { success: true, lockedOut: false };
     } else {
@@ -412,6 +494,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         importantDocs,
         supportTickets,
         supabaseConfig,
+        isCloudSyncing,
+        cloudSyncStatus,
+        syncAllToSupabase,
         addNotice,
         updateNotice,
         deleteNotice,
